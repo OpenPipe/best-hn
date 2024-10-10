@@ -1,5 +1,8 @@
 #!/bin/bash
 
+set -e
+set -o pipefail
+
 if [ $# -ne 1 ]; then
     echo "Usage: $0 \"ssh_command\""
     exit 1
@@ -31,7 +34,7 @@ END {
 mv "$temp_file" "$config_file"
 
 # Copy remote_lowtrust keypair to the remote system and rename to id_rsa
-scp -P "$port" ~/.ssh/remote_lowtrust "root@$host:~/.ssh/id_rsa"
+scp -P "$port" ~/.ssh/remote_lowtrust "root@$host:~/.ssh/id_rsa"r
 scp -P "$port" ~/.ssh/remote_lowtrust.pub "root@$host:~/.ssh/id_rsa.pub"
 
 # Clone the repository and run install_deps.sh on the remote system
@@ -48,16 +51,10 @@ ssh -p "$port" "root@$host" << EOF
 
     mkdir -p /workspace
     cd /workspace
-    # GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" git clone git@github.com:OpenPipe/best-hn.git
-    # cd best-hn/
-    # ./install_deps.sh
+    GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" git clone git@github.com:OpenPipe/best-hn.git
+    cd best-hn/
+    ./prepare_env.sh
 
-    # Add line to source .env file in bash config
-    echo "source /workspace/.env" >> ~/.bashrc
-
-    # Change home directory to /workspace
-    usermod -d /workspace root
-    export HOME=/workspace
 EOF
 
 # Copy the local .env file to the remote repository
