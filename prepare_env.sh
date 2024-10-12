@@ -9,8 +9,10 @@ add_to_bashrc() {
     grep -qxF "$line" ~/.bashrc || echo "$line" >> ~/.bashrc
 }
 
-add_to_bashrc "source /workspace/.env"
 add_to_bashrc "export UV_CACHE_DIR=/workspace/.cache/uv"
+add_to_bashrc "export HF_HOME=/workspace/.cache/huggingface"
+add_to_bashrc "export HF_HUB_ENABLE_HF_TRANSFER=1"
+add_to_bashrc "source /workspace/.env"
 
 source ~/.bashrc
 
