@@ -16,7 +16,7 @@ model_name = "unsloth/Llama-3.2-3B"
 dataset_path = "./data/sample_pairs"
 output_dir = "./reward_model_output"
 num_epochs = 1
-batch_size = 8
+batch_size = 1
 learning_rate = 5e-5
 max_length = 4096
 
@@ -25,6 +25,9 @@ wandb.init(project="reward_model_training")
 
 print("Loading dataset...")
 dataset: Dataset = load_from_disk(dataset_path)["train"]
+
+# Limit the dataset to 10,000 examples
+dataset = dataset.select(range(10000))
 
 
 def preprocess_function(examples):

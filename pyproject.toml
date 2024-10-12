@@ -7,11 +7,13 @@ requires-python = ">=3.10"
 dependencies = [
     "datasets>=3.0.1",
     "dicttoxml>=1.7.16",
+    "hf-transfer>=0.1.8",
     "ipykernel>=6.29.5",
     "ipywidgets>=8.1.5",
     "jupyter>=1.1.1",
     "peft>=0.13.2",
     "polars>=1.9.0",
+    "python-dotenv>=1.0.1",
     "tqdm>=4.66.5",
     "transformers>=4.45.2",
     "trl>=0.11.3",
