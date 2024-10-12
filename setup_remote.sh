@@ -34,7 +34,7 @@ END {
 mv "$temp_file" "$config_file"
 
 # Copy remote_lowtrust keypair to the remote system and rename to id_rsa
-scp -P "$port" ~/.ssh/remote_lowtrust "root@$host:~/.ssh/id_rsa"r
+scp -P "$port" ~/.ssh/remote_lowtrust "root@$host:~/.ssh/id_rsa"
 scp -P "$port" ~/.ssh/remote_lowtrust.pub "root@$host:~/.ssh/id_rsa.pub"
 
 local_name="$(git config --get user.name)"
@@ -42,6 +42,9 @@ local_email="$(git config --get user.email)"
 
 # Clone the repository and run install_deps.sh on the remote system
 ssh -p "$port" "root@$host" << EOF
+    set -e
+    set -o pipefail
+
     # Set git username and email based on local configuration
     echo "Setting git user.name to $local_name and user.email to $local_email"
     git config --global user.name "$local_name"

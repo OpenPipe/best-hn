@@ -23,6 +23,7 @@ apt-get install -y tmux nvtop entr
 # Install python dependencies
 curl -LsSf https://astral.sh/uv/0.4.6/install.sh | sh
 
+source ~/.bashrc
 uv sync
 
 echo "Python from virtual environment: $(uv run which python)"
