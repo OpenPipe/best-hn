@@ -166,3 +166,4 @@ last_run_prepared/
 
 data/
 wandb/
+reward_model_output/

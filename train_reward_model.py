@@ -16,7 +16,7 @@ model_name = "unsloth/Llama-3.2-3B"
 dataset_path = "./data/sample_pairs"
 output_dir = "./reward_model_output"
 num_epochs = 1
-batch_size = 1
+batch_size = 1  # For some reason making this larger doesn't help training time, why?
 learning_rate = 5e-5
 max_length = 4096
 
@@ -51,12 +51,17 @@ def preprocess_function(examples):
 
 print("Loading tokenizer and model...")
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=1)
+model = AutoModelForSequenceClassification.from_pretrained(
+    model_name,
+    num_labels=1,
+    device_map="auto",
+)
 
-# Add padding token if it doesn't exist
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
-    model.config.pad_token_id = tokenizer.pad_token_id
+print(f"Tokenizer padding token: {tokenizer.pad_token}")
+print(f"Model padding token: {model.config.pad_token_id}")
+
+model.config.pad_token_id = tokenizer.pad_token_id
+tokenizer.padding_side = "right"
 
 print("Processing dataset...")
 processed_dataset = dataset.map(
@@ -66,14 +71,14 @@ processed_dataset = dataset.map(
 )
 
 print("Splitting dataset...")
-train_val_split = processed_dataset.train_test_split(test_size=1000, seed=42)
+train_val_split = processed_dataset.train_test_split(test_size=500, seed=42)
 
 print("Configuring LoRA...")
 peft_config = LoraConfig(
     task_type="SEQ_CLS",
     r=8,
-    lora_alpha=32,
-    lora_dropout=0.1,
+    lora_alpha=16,
+    lora_dropout=0,
 )
 model = get_peft_model(model, peft_config)
 
@@ -84,15 +89,17 @@ training_args = RewardConfig(
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     learning_rate=learning_rate,
-    weight_decay=0.01,
+    weight_decay=0,
     evaluation_strategy="steps",
     eval_steps=500,
     logging_steps=100,
     save_strategy="steps",
     save_steps=1000,
-    load_best_model_at_end=True,
+    # load_best_model_at_end=True,
     max_length=max_length,
     report_to="wandb",
+    no_cuda=False,
+    bf16=True,
 )
 
 print("Initializing RewardTrainer...")
