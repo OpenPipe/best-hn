@@ -1,7 +1,7 @@
 # To run this script: `echo train_reward_model.py | entr -s "uv run train_reward_model.py"`
 
-
-from datasets import load_from_disk, Dataset
+import torch
+from datasets import load_from_disk, DatasetDict
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -24,10 +24,7 @@ max_length = 4096
 wandb.init(project="reward_model_training")
 
 print("Loading dataset...")
-dataset: Dataset = load_from_disk(dataset_path)["train"]
-
-# Limit the dataset to 10,000 examples
-dataset = dataset.select(range(10000))
+dataset: DatasetDict = load_from_disk(dataset_path)
 
 
 def preprocess_function(examples):
@@ -55,6 +52,8 @@ model = AutoModelForSequenceClassification.from_pretrained(
     model_name,
     num_labels=1,
     device_map="auto",
+    attn_implementation="flash_attention_2",
+    torch_dtype=torch.bfloat16,
 )
 
 print(f"Tokenizer padding token: {tokenizer.pad_token}")
@@ -67,11 +66,8 @@ print("Processing dataset...")
 processed_dataset = dataset.map(
     preprocess_function,
     batched=True,
-    remove_columns=dataset.column_names,
+    remove_columns=dataset["train"].column_names,
 )
-
-print("Splitting dataset...")
-train_val_split = processed_dataset.train_test_split(test_size=500, seed=42)
 
 print("Configuring LoRA...")
 peft_config = LoraConfig(
@@ -100,14 +96,15 @@ training_args = RewardConfig(
     report_to="wandb",
     no_cuda=False,
     bf16=True,
+    use_liger_kernel=True,
 )
 
 print("Initializing RewardTrainer...")
 trainer = RewardTrainer(
     model=model,
     args=training_args,
-    train_dataset=train_val_split["train"],
-    eval_dataset=train_val_split["test"],
+    train_dataset=processed_dataset["train"],
+    eval_dataset=processed_dataset["validation"],
     tokenizer=tokenizer,
 )
 

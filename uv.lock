@@ -271,13 +271,16 @@ source = { virtual = "." }
 dependencies = [
     { name = "datasets" },
     { name = "dicttoxml" },
+    { name = "flash-attn" },
     { name = "hf-transfer" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
     { name = "jupyter" },
+    { name = "liger-kernel" },
     { name = "peft" },
     { name = "polars" },
     { name = "python-dotenv" },
+    { name = "torch" },
     { name = "tqdm" },
     { name = "transformers" },
     { name = "trl" },
@@ -288,13 +291,16 @@ dependencies = [
 requires-dist = [
     { name = "datasets", specifier = ">=3.0.1" },
     { name = "dicttoxml", specifier = ">=1.7.16" },
+    { name = "flash-attn", specifier = "==2.6.3" },
     { name = "hf-transfer", specifier = ">=0.1.8" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipywidgets", specifier = ">=8.1.5" },
     { name = "jupyter", specifier = ">=1.1.1" },
+    { name = "liger-kernel", specifier = ">=0.3.1" },
     { name = "peft", specifier = ">=0.13.2" },
     { name = "polars", specifier = ">=1.9.0" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
+    { name = "torch", specifier = ">=2.4.1" },
     { name = "tqdm", specifier = ">=4.66.5" },
     { name = "transformers", specifier = ">=4.45.2" },
     { name = "trl", specifier = ">=0.11.3" },
@@ -590,6 +596,15 @@ wheels = [
 ]
 
 [[package]]
+name = "einops"
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/79/ca/9f5dcb8bead39959454c3912266bedc4c315839cee0e0ca9f4328f4588c1/einops-0.8.0.tar.gz", hash = "sha256:63486517fed345712a8385c100cb279108d9d47e6ae59099b07657e983deae85", size = 58861 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/44/5a/f0b9ad6c0a9017e62d4735daaeb11ba3b6c009d69a26141b258cd37b5588/einops-0.8.0-py3-none-any.whl", hash = "sha256:9572fb63046264a862693b0a87088af3bdc8c068fde03de63453cbbde245465f", size = 43223 },
+]
+
+[[package]]
 name = "exceptiongroup"
 version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -624,6 +639,16 @@ sdist = { url = "https://files.pythonhosted.org/packages/9d/db/3ef5bb276dae18d6e
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b9/f8/feced7779d755758a52d1f6635d990b8d98dc0a29fa568bbe0625f18fdf3/filelock-3.16.1-py3-none-any.whl", hash = "sha256:2082e5703d51fbf98ea75855d9d5527e33d8ff23099bec374a134febee6946b0", size = 16163 },
 ]
+
+[[package]]
+name = "flash-attn"
+version = "2.6.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "einops" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cd/1e/21321670cd3c2f225026d9fd89272cae661529238850e79f48ccf2f9e4e3/flash_attn-2.6.3.tar.gz", hash = "sha256:5bfae9500ad8e7d2937ebccb4906f3bc464d1bf66eedd0e4adabd520811c7b52", size = 2631958 }
 
 [[package]]
 name = "fqdn"
@@ -1181,6 +1206,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/59/73/fa26bbb747a9ea4fca6b01453aa22990d52ab62dd61384f1ac0dc9d4e7ba/jupyterlab_widgets-3.0.13.tar.gz", hash = "sha256:a2966d385328c1942b683a8cd96b89b8dd82c8b8f81dda902bb2bc06d46f5bed", size = 203556 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a9/93/858e87edc634d628e5d752ba944c2833133a28fa87bb093e6832ced36a3e/jupyterlab_widgets-3.0.13-py3-none-any.whl", hash = "sha256:e3cda2c233ce144192f1e29914ad522b2f4c40e77214b0cc97377ca3d323db54", size = 214392 },
+]
+
+[[package]]
+name = "liger-kernel"
+version = "0.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "torch" },
+    { name = "triton" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e9/7e/5fc1042d99ac04f3f8c3776293aaf8bad21b68f8ad7f90dd2963e94b2f65/liger_kernel-0.3.1.tar.gz", hash = "sha256:ba597dac5c4e45d67f82955eb84dffa41f465205f51fdcb7c75f34c8c4a75f64", size = 45993 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/73/0b/6dc1f7e336b2bf92bc6334acd90175ee00c0b9c93b59803824dbc5d0c9dd/liger_kernel-0.3.1-py3-none-any.whl", hash = "sha256:e78903db10708a5422bfda02eb022175b8f6a84937ce840f6382ac27a343f24f", size = 58538 },
 ]
 
 [[package]]
@@ -2749,7 +2787,7 @@ name = "triton"
 version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "filelock", marker = "platform_system != 'Windows'" },
+    { name = "filelock" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/45/27/14cc3101409b9b4b9241d2ba7deaa93535a217a211c86c4cc7151fb12181/triton-3.0.0-1-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:e1efef76935b2febc365bfadf74bcb65a6f959a9872e5bddf44cc9e0adce1e1a", size = 209376304 },
