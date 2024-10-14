@@ -3,23 +3,24 @@ name = "best-hn"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "bitsandbytes>=0.44.1",
-    "datasets>=3.0.1",
-    "dicttoxml>=1.7.16",
-    "flash-attn==2.6.3",
-    "hf-transfer>=0.1.8",
-    "ipykernel>=6.29.5",
-    "ipywidgets>=8.1.5",
-    "jupyter>=1.1.1",
-    "liger-kernel>=0.3.1",
-    "peft>=0.13.2",
-    "polars>=1.9.0",
+    "openai==1.41.1",
+    "pydantic==2.6.2",
+    "fastapi==0.110.0",
+    "pandas==2.2.1",
+    "s3fs==2024.5.0",
+    "wandb==0.17.5",
+    "mlflow==2.15.1",
+    "openpipe==4.25.0",
+    "backoff>=2.2.1",
+    "octoai>=1.9.0",
     "python-dotenv>=1.0.1",
-    "torch>=2.4.1",
-    "tqdm>=4.66.5",
-    "transformers>=4.45.2",
-    "trl>=0.11.3",
-    "wandb>=0.18.3",
+    "transformers>=4.45.1",
+    "trl>=0.11.1",
+    "peft>=0.13.0",
+    "asyncpg>=0.29.0",
+    "huggingface-hub==0.25.1",
+    "hf-transfer==0.1.8",
+    "bitsandbytes==0.44.1",
 ]
