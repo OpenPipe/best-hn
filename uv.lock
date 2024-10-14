@@ -269,6 +269,7 @@ name = "best-hn"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "bitsandbytes" },
     { name = "datasets" },
     { name = "dicttoxml" },
     { name = "flash-attn" },
@@ -289,6 +290,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "bitsandbytes", specifier = ">=0.44.1" },
     { name = "datasets", specifier = ">=3.0.1" },
     { name = "dicttoxml", specifier = ">=1.7.16" },
     { name = "flash-attn", specifier = "==2.6.3" },
@@ -305,6 +307,19 @@ requires-dist = [
     { name = "transformers", specifier = ">=4.45.2" },
     { name = "trl", specifier = ">=0.11.3" },
     { name = "wandb", specifier = ">=0.18.3" },
+]
+
+[[package]]
+name = "bitsandbytes"
+version = "0.44.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "torch" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e4/e6/ccb84da7ffaf208a71c2c3c8e1120b34759df640db959660be9a98505eb4/bitsandbytes-0.44.1-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:b2f24c6cbf11fc8c5d69b3dcecee9f7011451ec59d6ac833e873c9f105259668", size = 122419627 },
+    { url = "https://files.pythonhosted.org/packages/5f/f5/11bddebb5addc0a005b0c1cecc6e4c6e4055ad7b860bdcbf6374e12a51f5/bitsandbytes-0.44.1-py3-none-win_amd64.whl", hash = "sha256:8e68e12aa25d2cf9a1730ad72890a5d1a19daa23f459a6a4679331f353d58cb4", size = 121451331 },
 ]
 
 [[package]]
