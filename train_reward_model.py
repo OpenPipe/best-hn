@@ -1,7 +1,7 @@
 # To run this script: `echo train_reward_model.py | entr -s "uv run train_reward_model.py"`
 
 import torch
-from datasets import load_from_disk, DatasetDict
+from datasets import load_dataset, DatasetDict
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -10,10 +10,12 @@ from trl import RewardTrainer, RewardConfig
 from peft.tuners.lora import LoraConfig
 from peft.mapping import get_peft_model
 import wandb
+from dotenv import load_dotenv
+
+load_dotenv("/workspace/.env")
 
 # Configuration
 model_name = "unsloth/Llama-3.2-3B"
-dataset_path = "./data/sample_pairs"
 output_dir = "./reward_model_output"
 num_epochs = 1
 batch_size = 1  # For some reason making this larger doesn't help training time, why?
@@ -24,7 +26,7 @@ max_length = 4096
 wandb.init(project="reward_model_training")
 
 print("Loading dataset...")
-dataset: DatasetDict = load_from_disk(dataset_path)
+dataset: DatasetDict = load_dataset("OpenPipe/best-hn-comment-pairs")
 
 
 def preprocess_function(examples):

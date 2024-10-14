@@ -11,6 +11,10 @@ from trl import RewardConfig, RewardTrainer
 
 import wandb
 
+from dotenv import load_dotenv
+
+load_dotenv("/workspace/.env")
+
 
 print(f"Total GPUs: {torch.cuda.device_count()}")
 
