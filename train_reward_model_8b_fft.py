@@ -7,8 +7,6 @@ from transformers import (
     AutoTokenizer,
 )
 from trl import RewardTrainer, RewardConfig
-from peft.tuners.lora import LoraConfig
-from peft.mapping import get_peft_model
 import wandb
 from dotenv import load_dotenv
 
@@ -16,7 +14,7 @@ load_dotenv("/workspace/.env")
 
 # Configuration
 model_name = "unsloth/Meta-Llama-3.1-8B"
-output_dir = "./reward_model_output"
+output_dir = "./models/reward_model_8b_fft"
 num_epochs = 1
 batch_size = 1  # For some reason making this larger doesn't help training time, why?
 learning_rate = 5e-5
@@ -71,15 +69,6 @@ processed_dataset = dataset.map(
     remove_columns=dataset["train"].column_names,
 )
 
-print("Configuring LoRA...")
-peft_config = LoraConfig(
-    task_type="SEQ_CLS",
-    r=8,
-    lora_alpha=16,
-    lora_dropout=0,
-)
-model = get_peft_model(model, peft_config)
-
 # Configure training arguments
 training_args = RewardConfig(
     output_dir=output_dir,
@@ -91,15 +80,17 @@ training_args = RewardConfig(
     evaluation_strategy="steps",
     eval_steps=500,
     logging_steps=100,
-    save_strategy="steps",
-    save_steps=1000,
-    # load_best_model_at_end=True,
     max_length=max_length,
     report_to="wandb",
     no_cuda=False,
     bf16=True,
     use_liger_kernel=True,
     warmup_steps=100,
+    save_strategy="steps",
+    save_steps=1000,
+    save_total_limit=1,
+    overwrite_output_dir=False,
+    remove_unused_columns=False,
 )
 
 print("Initializing RewardTrainer...")
@@ -112,7 +103,7 @@ trainer = RewardTrainer(
 )
 
 print("Starting model training...")
-trainer.train()
+trainer.train(resume_from_checkpoint=True)
 
 print("Saving final model...")
 trainer.save_model(output_dir)
