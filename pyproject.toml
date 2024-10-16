@@ -14,12 +14,18 @@ dependencies = [
     "ipywidgets>=8.1.5",
     "jupyter>=1.1.1",
     "liger-kernel>=0.3.1",
+    "matplotlib>=3.9.2",
     "peft>=0.13.2",
     "polars>=1.9.0",
     "python-dotenv>=1.0.1",
-    "torch>=2.4.1",
+    "sglang[all]>=0.3.3.post1",
+    "torch==2.4.0",
     "tqdm>=4.66.5",
     "transformers>=4.45.2",
-    "trl>=0.11.3",
+    "trl>=0.11.4",
     "wandb>=0.18.3",
 ]
+
+[tool.uv.sources]
+transformers = { git = "https://github.com/huggingface/transformers" }
+sglang = { path = "deps/sglang/python", editable = true }
