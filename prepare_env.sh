@@ -18,7 +18,7 @@ source ~/.bashrc
 
 # Install system dependencies
 apt-get update
-apt-get install -y tmux nvtop entr build-essential
+apt-get install -y tmux nvtop htop entr build-essential
 
 # Install python dependencies
 curl -LsSf https://astral.sh/uv/0.4.6/install.sh | sh
