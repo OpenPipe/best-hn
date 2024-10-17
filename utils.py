@@ -1,10 +1,11 @@
-from typing import Union
+from typing import Union, Literal
 import polars as pl
-from functools import lru_cache
 import dicttoxml
 import tqdm
 import requests
 import os
+import html
+import re
 
 
 def cache_dataframe(path):
@@ -35,6 +36,11 @@ def full_dataset() -> pl.DataFrame:
     dataset: Dataset = load_dataset("OpenPipe/hacker-news", split="train")
 
     return dataset.to_polars()
+
+
+def unescape_html(text):
+    unescaped = html.unescape(text).replace("<p>", "\n\n")
+    return re.sub(r'<a href="([^"]+)"[^>]*>[^<]+</a>', r"\1", unescaped)
 
 
 @cache_dataframe("./data/augmented_comments.parquet")
@@ -98,12 +104,28 @@ def augmented_comments() -> pl.DataFrame:
             .alias("nested_level")
         )
 
+    progress_bar = tqdm.tqdm(total=len(comments_df), desc="Unescaping HTML")
+
+    def unescape_html_wrapper(text):
+        progress_bar.update(1)
+        return unescape_html(text)
+
+    comments_df = comments_df.with_columns(
+        pl.col("text")
+        .map_elements(unescape_html_wrapper, return_dtype=pl.Utf8)
+        .alias("text")
+    )
+
     return comments_df
 
 
-def build_all_prompts(ids: Union[list[int], pl.Series]) -> list[str]:
+def build_all_prompts(
+    ids: Union[list[int], pl.Series], version: Literal["v1", "v2"]
+) -> list[str]:
     if isinstance(ids, pl.Series):
         ids = ids.to_list()
+
+    build_prompt = build_prompt_v1 if version == "v1" else build_prompt_v2
 
     prompts = []
     for id in tqdm.tqdm(ids, desc="Building prompts"):
@@ -112,8 +134,8 @@ def build_all_prompts(ids: Union[list[int], pl.Series]) -> list[str]:
     return prompts
 
 
-def build_prompt(comment_id: int) -> str:
-    df = dataset()
+def build_prompt_v1(comment_id: int) -> str:
+    df = full_dataset()
     comment = df.row(comment_id, named=True)
     story = df.row(comment["top_level_parent"], named=True)
 
@@ -130,6 +152,37 @@ def build_prompt(comment_id: int) -> str:
     current_parent = df.row(comment["parent"], named=True)
     while current_parent["id"] != story["id"]:
         data["comment"]["parent_chain"].append(
+            {"author": current_parent["by"], "text": current_parent["text"]}
+        )
+        current_parent = df.row(current_parent["parent"], named=True)
+
+    if story["url"] is not None:
+        data["story"]["url"] = story["url"]
+    if story["text"] is not None:
+        data["story"]["text"] = story["text"]
+
+    xml: bytes = dicttoxml.dicttoxml(data, attr_type=False, root=False)
+
+    return xml.decode("utf-8")
+
+
+def build_prompt_v2(comment_id: int) -> str:
+    df = full_dataset()
+    comment = df.row(comment_id, named=True)
+    story = df.row(comment["top_level_parent"], named=True)
+
+    data = {
+        "story": {"title": story["title"]},
+        "parent_chain": [],
+        "comment": {
+            "author": comment["by"],
+            "text": comment["text"],
+        },
+    }
+
+    current_parent = df.row(comment["parent"], named=True)
+    while current_parent["id"] != story["id"]:
+        data["parent_chain"].append(
             {"author": current_parent["by"], "text": current_parent["text"]}
         )
         current_parent = df.row(current_parent["parent"], named=True)

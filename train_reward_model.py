@@ -15,18 +15,19 @@ from dotenv import load_dotenv
 load_dotenv("/workspace/.env")
 
 # Configuration
-model_name = "unsloth/Meta-Llama-3.1-8B"
-output_dir = "./reward_model_output"
+base_model = "unsloth/Meta-Llama-3.1-8B"
+run_name = "rm_l31_8b_v1"
+output_dir = f"./models/{run_name}"
 num_epochs = 1
 batch_size = 1  # For some reason making this larger doesn't help training time, why?
 learning_rate = 5e-5
 max_length = 4096
 
 # Initialize wandb
-wandb.init(project="reward_model_training")
+wandb.init(project="reward_model_training", name=run_name)
 
 print("Loading dataset...")
-dataset: DatasetDict = load_dataset("OpenPipe/best-hn-comment-pairs")
+dataset: DatasetDict = load_dataset("OpenPipe/best-hn-comment-pairs-v1")
 
 
 def preprocess_function(examples):
@@ -49,9 +50,9 @@ def preprocess_function(examples):
 
 
 print("Loading tokenizer and model...")
-tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(base_model)
 model = AutoModelForSequenceClassification.from_pretrained(
-    model_name,
+    base_model,
     num_labels=1,
     device_map="auto",
     attn_implementation="flash_attention_2",
