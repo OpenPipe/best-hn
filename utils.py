@@ -6,6 +6,7 @@ import requests
 import os
 import html
 import re
+import numpy as np
 
 
 def cache_dataframe(path):
@@ -24,6 +25,14 @@ def cache_dataframe(path):
             cache[path] = df
             return df
 
+        def bust_cache():
+            if path in cache:
+                del cache[path]
+            if os.path.exists(path):
+                os.remove(path)
+            print(f"Cache busted for {path}")
+
+        wrapper.bust_cache = bust_cache
         return wrapper
 
     return decorator
@@ -233,4 +242,62 @@ def with_story_info(comments_df: pl.DataFrame) -> pl.DataFrame:
 
     return comments_df.join(
         stories_df, left_on="top_level_parent", right_on="story_id", how="left"
+    )
+
+
+@cache_dataframe("./data/stories_dataset.parquet")
+def stories_dataset() -> pl.DataFrame:
+    stories = full_dataset().filter(
+        (pl.col("type") == "story")
+        & pl.col("time").is_not_null()
+        & pl.col("text").is_not_null()
+        & pl.col("url").is_null()
+        & pl.col("deleted").is_null()
+        & pl.col("dead").is_null()
+    )
+
+    # There's a weird discontinuity in late 2015, just ignore it
+    stories = stories.filter(pl.col("time") >= pl.datetime(2016, 1, 1))
+
+    # Add a log score, it's a very skewed distribution
+    stories = stories.with_columns(pl.col("score").log().alias("log_score"))
+
+    progress_bar = tqdm.tqdm(total=len(stories), desc="Serializing stories")
+
+    def serialize_story(story):
+        progress_bar.update(1)
+        return f"""
+{story["title"]}
+{story["by"]}, {story["time"].strftime("%Y-%m-%d")}
+
+{html.unescape(story["text"]).replace("<p>", "\n\n")}
+"""
+
+    stories = stories.with_columns(
+        pl.struct(["title", "by", "time", "text"])
+        .map_elements(serialize_story, return_dtype=pl.Utf8)
+        .alias("serialized")
+    )
+
+    progress_bar.close()
+
+    stories = stories.sample(fraction=1, shuffle=True, seed=42)
+
+    split_assignments = np.random.choice(
+        ["train", "test", "val"], size=len(stories), p=[0.8, 0.1, 0.1]
+    )
+
+    stories = stories.with_columns(pl.Series("split", split_assignments))
+
+    return stories.select(
+        "id",
+        "title",
+        "by",
+        "text",
+        "score",
+        "descendants",
+        "time",
+        "log_score",
+        "serialized",
+        "split",
     )

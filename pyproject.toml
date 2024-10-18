@@ -18,6 +18,8 @@ dependencies = [
     "peft>=0.13.2",
     "polars>=1.9.0",
     "python-dotenv>=1.0.1",
+    "scikit-learn>=1.5.2",
+    "seaborn>=0.13.2",
     "sglang[all]>=0.3.3.post1",
     "torch==2.4.0",
     "tqdm>=4.66.5",
