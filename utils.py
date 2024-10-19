@@ -7,6 +7,7 @@ import os
 import html
 import re
 import numpy as np
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 
 def cache_dataframe(path):
