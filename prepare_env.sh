@@ -14,6 +14,12 @@ add_to_bashrc "export HF_HOME=/workspace/.cache/huggingface"
 add_to_bashrc "export HF_HUB_ENABLE_HF_TRANSFER=1"
 add_to_bashrc "source /workspace/.env"
 
+# Add uv to path
+add_to_bashrc "export PATH=\"/root/.cargo/bin:\$PATH\""
+
+# Enable CUDA debugging
+add_to_bashrc "export CUDA_LAUNCH_BLOCKING=1"
+
 source ~/.bashrc
 
 # Install system dependencies

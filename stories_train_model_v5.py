@@ -12,7 +12,6 @@ import wandb
 from dotenv import load_dotenv
 import polars as pl
 from utils import stories_dataset
-from sklearn.metrics import mean_squared_error
 from liger_kernel.transformers import _apply_liger_kernel_to_instance
 from training_helpers import compute_metrics
 
@@ -20,10 +19,11 @@ load_dotenv("/workspace/.env")
 
 # Configuration
 base_model = "unsloth/Meta-Llama-3.1-8B"
-run_name = "stories_model_v2"
+run_name = "stories_train_model_v5"
 output_dir = f"./models/{run_name}"
 num_epochs = 1
 batch_size = 4
+gradient_accumulation_steps = 4
 learning_rate = 2e-4
 max_length = 4096
 
@@ -79,6 +79,15 @@ model = get_peft_model(
     model,
     LoraConfig(
         task_type="SEQ_CLS",
+        target_modules=[
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ],
         r=8,
         lora_alpha=16,
         lora_dropout=0,
@@ -107,7 +116,7 @@ training_args = TrainingArguments(
     no_cuda=False,
     bf16=True,
     warmup_steps=100,
-    # use_liger_kernel=True,
+    gradient_accumulation_steps=gradient_accumulation_steps,
 )
 
 

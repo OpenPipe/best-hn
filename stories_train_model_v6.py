@@ -12,18 +12,19 @@ import wandb
 from dotenv import load_dotenv
 import polars as pl
 from utils import stories_dataset
-from sklearn.metrics import mean_squared_error
 from liger_kernel.transformers import _apply_liger_kernel_to_instance
 from training_helpers import compute_metrics
+import os
 
 load_dotenv("/workspace/.env")
 
 # Configuration
 base_model = "unsloth/Meta-Llama-3.1-8B"
-run_name = "stories_model_v2"
+run_name = "stories_train_model_v6"
 output_dir = f"./models/{run_name}"
 num_epochs = 1
 batch_size = 4
+gradient_accumulation_steps = 4
 learning_rate = 2e-4
 max_length = 4096
 
@@ -71,19 +72,14 @@ model = AutoModelForSequenceClassification.from_pretrained(
 )
 _apply_liger_kernel_to_instance(model=model)
 
+# Add this block to freeze all parameters except the classification head
+for param in model.parameters():
+    param.requires_grad = False
+for param in model.score.parameters():
+    param.requires_grad = True
+
 model.config.pad_token_id = tokenizer.pad_token_id
 tokenizer.padding_side = "right"
-
-print("Configuring LoRA...")
-model = get_peft_model(
-    model,
-    LoraConfig(
-        task_type="SEQ_CLS",
-        r=8,
-        lora_alpha=16,
-        lora_dropout=0,
-    ),
-)
 
 print("Loading dataset...")
 train_stories = create_dataset("train", 1000000, tokenizer)
@@ -107,12 +103,30 @@ training_args = TrainingArguments(
     no_cuda=False,
     bf16=True,
     warmup_steps=100,
-    # use_liger_kernel=True,
+    gradient_accumulation_steps=gradient_accumulation_steps,
 )
 
 
+class ClassificationHeadTrainer(Trainer):
+    def _save(self, output_dir: str, state_dict=None):
+        # Only save the classification head parameters
+        if state_dict is None:
+            state_dict = self.model.state_dict()
+
+        head_state_dict = {
+            k: v for k, v in state_dict.items() if k.startswith("score.")
+        }
+
+        os.makedirs(output_dir, exist_ok=True)
+        torch.save(head_state_dict, os.path.join(output_dir, "classification_head.bin"))
+
+    def _load_state_dict_in_model(self, state_dict):
+        # Load only classification head parameters
+        self.model.score.load_state_dict(state_dict)
+
+
 print("Initializing Trainer...")
-trainer = Trainer(
+trainer = ClassificationHeadTrainer(
     model=model,
     args=training_args,
     train_dataset=train_stories,

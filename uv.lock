@@ -289,6 +289,7 @@ dependencies = [
     { name = "peft" },
     { name = "polars" },
     { name = "python-dotenv" },
+    { name = "schedulefree" },
     { name = "scikit-learn" },
     { name = "seaborn" },
     { name = "sglang", extra = ["all"] },
@@ -314,6 +315,7 @@ requires-dist = [
     { name = "peft", specifier = ">=0.13.2" },
     { name = "polars", specifier = ">=1.9.0" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
+    { name = "schedulefree", specifier = ">=1.2.7" },
     { name = "scikit-learn", specifier = ">=1.5.2" },
     { name = "seaborn", specifier = ">=0.13.2" },
     { name = "sglang", extras = ["all"], editable = "deps/sglang/python" },
@@ -3056,6 +3058,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/58/0b7bcba3788ff503990cf9278d611b56c029400612ba93e772c987b5aa03/safetensors-0.4.5-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:67e1e7cb8678bb1b37ac48ec0df04faf689e2f4e9e81e566b5c63d9f23748523", size = 619301 },
     { url = "https://files.pythonhosted.org/packages/82/cc/9c2cf58611daf1c83ce5d37f9de66353e23fcda36008b13fd3409a760aa3/safetensors-0.4.5-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:dbd280b07e6054ea68b0cb4b16ad9703e7d63cd6890f577cb98acc5354780142", size = 605580 },
 ]
+
+[[package]]
+name = "schedulefree"
+version = "1.2.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/b8/5e0bdfcd5555654fcb976df8b0f413c1ec26efe016e7666abc2a7dd5f218/schedulefree-1.2.7.tar.gz", hash = "sha256:e97f8b8db332dafc9999a2c4ed68429606579d5eb250ebb953f233efffdc79c1", size = 19550 }
 
 [[package]]
 name = "scikit-learn"
