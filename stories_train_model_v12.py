@@ -13,17 +13,21 @@ from dotenv import load_dotenv
 import polars as pl
 from utils import stories_dataset
 from liger_kernel.transformers import _apply_liger_kernel_to_instance
-from training_helpers import compute_metrics
+from training_helpers import (
+    compute_metrics,
+    run_final_inference_and_report_metrics,
+    MandT,
+)
 
 load_dotenv("/workspace/.env")
 
 # Configuration
-base_model = "unsloth/gemma-2-9b"
+base_model = "unsloth/Meta-Llama-3.1-8B"
 run_name = __file__.split("/")[-1].replace(".py", "")
 output_dir = f"./models/{run_name}"
 num_epochs = 1
-batch_size = 2
-gradient_accumulation_steps = 8
+batch_size = 32
+gradient_accumulation_steps = 1
 learning_rate = 2e-4
 max_length = 4096
 
@@ -69,7 +73,12 @@ model = AutoModelForSequenceClassification.from_pretrained(
     attn_implementation="flash_attention_2",
     torch_dtype=torch.bfloat16,
 )
-# _apply_liger_kernel_to_instance(model=model)
+_apply_liger_kernel_to_instance(model=model)
+
+model.gradient_checkpointing_enable(
+    gradient_checkpointing_kwargs={"use_reentrant": True}
+)
+
 
 model.config.pad_token_id = tokenizer.pad_token_id
 tokenizer.padding_side = "right"
@@ -127,5 +136,9 @@ trainer.train()
 print("Saving final model...")
 trainer.save_model(output_dir)
 tokenizer.save_pretrained(output_dir)
+
+# Add the final inference and metrics reporting
+print("Running final inference and reporting metrics...")
+metrics = run_final_inference_and_report_metrics(MandT(model, tokenizer), output_dir)
 
 print("Stories model training complete")

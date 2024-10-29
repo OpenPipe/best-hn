@@ -8,6 +8,7 @@ import html
 import re
 import numpy as np
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
+import math
 
 
 def cache_dataframe(path):
@@ -302,3 +303,45 @@ def stories_dataset() -> pl.DataFrame:
         "serialized",
         "split",
     )
+
+
+def calculate_metrics_by_split(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Calculate correlation and RMSE metrics for each split in the dataset.
+
+    Args:
+        df: DataFrame with log_score, predictions and split columns
+
+    Returns:
+        DataFrame with metrics for each split
+    """
+    metrics = []
+
+    for split in df["split"].unique():
+        split_df = df.filter(pl.col("split") == split)
+
+        # Calculate baseline (mean) metrics
+        average_score = split_df["log_score"].mean()
+        rmse_baseline = math.sqrt(
+            (split_df["log_score"] - average_score).pow(2).sum() / len(split_df)
+        )
+
+        # Calculate model metrics
+        rmse_model = math.sqrt(
+            (split_df["log_score"] - split_df["predictions"]).pow(2).sum()
+            / len(split_df)
+        )
+        correlation_model = split_df.select(pl.corr("log_score", "predictions"))[
+            "log_score"
+        ][0]
+
+        metrics.append(
+            {
+                "split": split,
+                "baseline_rmse": rmse_baseline,
+                "model_rmse": rmse_model,
+                "model_correlation": correlation_model,
+            }
+        )
+
+    return pl.DataFrame(metrics)

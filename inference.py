@@ -13,6 +13,16 @@ class MandT:
     tokenizer: AutoTokenizer
 
 
+ModelOrPath = Union[MandT, str]
+
+
+def load_model(model_or_path: ModelOrPath) -> MandT:
+    if isinstance(model_or_path, str):
+        return load_peft_model(model_or_path, merge=True)
+    else:
+        return model_or_path
+
+
 def load_peft_model(model_path: str, merge: bool = False) -> MandT:
     model = AutoModelForSequenceClassification.from_pretrained(
         model_path, num_labels=1, device_map="auto", torch_dtype=torch.bfloat16
@@ -35,10 +45,7 @@ def run_inference_transformers(
     model_or_path: Union[MandT, str],
     batch_size: int = 4,
 ) -> list[float]:
-    if isinstance(model_or_path, str):
-        mandt = load_peft_model(model_or_path, merge=True)
-    else:
-        mandt = model_or_path
+    mandt = load_model(model_or_path)
 
     model = mandt.model
     tokenizer = mandt.tokenizer

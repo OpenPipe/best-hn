@@ -13,7 +13,11 @@ from dotenv import load_dotenv
 import polars as pl
 from utils import stories_dataset
 from liger_kernel.transformers import _apply_liger_kernel_to_instance
-from training_helpers import compute_metrics
+from training_helpers import (
+    compute_metrics,
+    run_final_inference_and_report_metrics,
+    MandT,
+)
 
 load_dotenv("/workspace/.env")
 
@@ -127,5 +131,8 @@ trainer.train()
 print("Saving final model...")
 trainer.save_model(output_dir)
 tokenizer.save_pretrained(output_dir)
+
+print("Running final inference and reporting metrics...")
+metrics = run_final_inference_and_report_metrics(MandT(model, tokenizer), output_dir)
 
 print("Stories model training complete")
