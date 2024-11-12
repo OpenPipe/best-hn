@@ -29,7 +29,7 @@ if modal.is_local():
         )
     },
 )
-async def main():
+def main():
     import os
     import torch
     from datasets import Dataset
