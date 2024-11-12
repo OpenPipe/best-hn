@@ -66,7 +66,7 @@ async def main():
 
     logging.info("Loading dataset...")
     df = pl.read_parquet(
-        f"s3://{os.getenv('REMOTE_BUCKET')}/scraped-stories-with-date.parquet"
+        f"s3://{os.getenv('REMOTE_BUCKET')}/scraped-stories-with-datetime.parquet"
     )
     logging.info(f"Loaded {df.height} rows")
 
@@ -106,8 +106,10 @@ async def main():
     )
 
     logging.info("Transforming datasets...")
-    train_stories = create_dataset(df, "train", 50000, tokenizer)
-    validation_stories = create_dataset(df, "val", 500, tokenizer)
+    train_stories = create_dataset(df, "train", 1000000, tokenizer, max_length)
+    print(f"Train stories: {len(train_stories)}")
+    validation_stories = create_dataset(df, "val", 500, tokenizer, max_length)
+    print(f"Validation stories: {len(validation_stories)}")
 
     # Configure training arguments
     training_args = TrainingArguments(

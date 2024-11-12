@@ -77,17 +77,15 @@ def run_final_inference_and_report_metrics(
 
     print(metrics)
 
-    # Log metrics to wandb if it's being used
-    if wandb.run is not None:
-        for row in metrics.iter_rows(named=True):
-            split = row["split"]
-            wandb.summary.update(
-                {
-                    f"final/{split}/baseline_rmse": row["baseline_rmse"],
-                    f"final/{split}/model_rmse": row["model_rmse"],
-                    f"final/{split}/correlation": row["model_correlation"],
-                }
-            )
+    for row in metrics.iter_rows(named=True):
+        split = row["split"]
+        wandb.summary.update(
+            {
+                f"final/{split}/baseline_rmse": row["baseline_rmse"],
+                f"final/{split}/model_rmse": row["model_rmse"],
+                f"final/{split}/correlation": row["model_correlation"],
+            }
+        )
 
     return metrics
 
@@ -128,6 +126,7 @@ def calculate_metrics_by_split(df: pl.DataFrame) -> pl.DataFrame:
                 "baseline_rmse": rmse_baseline,
                 "model_rmse": rmse_model,
                 "model_correlation": correlation_model,
+                "num_rows": len(split_df),
             }
         )
 
