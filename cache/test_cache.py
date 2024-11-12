@@ -1,23 +1,49 @@
 import pytest
 import asyncio
 import os
-from cache import Cache, SQLiteBackend
+from cache import Cache, SQLiteBackend, S3Backend
+from moto import mock_aws
+import boto3
 
 
 # Test fixtures
-@pytest.fixture
-def cache():
-    # Use temporary test database
-    db_path = "test_cache.db"
-    backend = SQLiteBackend(db_path)
-    cache = Cache(backend)
+@pytest.fixture(
+    params=[
+        # ("sqlite", lambda: SQLiteBackend("test_cache.db")),
+        (
+            "s3",
+            lambda: S3Backend("test-bucket", prefix="test/", region_name="us-east-1"),
+        ),
+    ]
+)
+def cache(request):
+    backend_type, backend_factory = request.param
 
-    yield cache
+    if backend_type == "sqlite":
+        db_path = "test_cache.db"
+        backend = backend_factory()
+        cache = Cache(backend)
 
-    # Cleanup
-    asyncio.run(cache.bust_all())
-    if os.path.exists(db_path):
-        os.remove(db_path)
+        yield cache
+
+        # Cleanup
+        asyncio.run(cache.bust_all())
+        if os.path.exists(db_path):
+            os.remove(db_path)
+    elif backend_type == "s3":
+        mock = mock_aws()
+        mock.start()
+
+        print("CREATING BUCKET")
+        s3 = boto3.client("s3", region_name="us-east-1")
+        s3.create_bucket(Bucket="test-bucket")
+
+        backend = backend_factory()
+        cache = Cache(backend)
+
+        yield cache
+
+        mock.stop()
 
 
 # Test functions to be cached
@@ -134,3 +160,25 @@ async def test_bust_entire_cache(cache):
     add2_hit, _ = await cached_add2.read_cache(4, 5)
     assert not add1_hit
     assert not add2_hit
+
+
+@pytest.mark.asyncio
+async def test_direct_cache_operations(cache):
+    # Test setting and getting a value
+    await cache.set("test_key", "test_value")
+    result = await cache.get("test_key")
+    assert result == "test_value"
+
+    # Test getting a non-existent key
+    with pytest.raises(KeyError):
+        await cache.get("nonexistent_key")
+
+    # Test overwriting an existing key
+    await cache.set("test_key", "new_value")
+    result = await cache.get("test_key")
+    assert result == "new_value"
+
+    # Test that bust_all clears direct cache entries
+    await cache.bust_all()
+    with pytest.raises(KeyError):
+        await cache.get("test_key")

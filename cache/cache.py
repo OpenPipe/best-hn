@@ -5,6 +5,8 @@ import hashlib
 import asyncio
 from typing import Optional, Callable, Tuple, Any
 import os
+import aioboto3
+import io
 
 BUST_CACHE = os.getenv("BUST_CACHE", "")
 CACHE_ONLY = os.getenv("CACHE_ONLY", "false").lower() != "false"
@@ -157,6 +159,79 @@ class SQLiteBackend(CacheBackend):
             conn.commit()
 
 
+class S3Backend(CacheBackend):
+    def __init__(
+        self, bucket_name: str, prefix: str = "cache/", region_name: str = "us-east-1"
+    ):
+        self.bucket_name = bucket_name
+        self.prefix = prefix.rstrip("/") + "/"
+        self.session = aioboto3.Session()
+        self.region_name = region_name
+
+    async def setup(self) -> None:
+        # Ensure bucket exists
+        async with self.session.client("s3", region_name=self.region_name) as s3:
+            try:
+                await s3.head_bucket(Bucket=self.bucket_name)
+            except:
+                raise Exception(
+                    f"Bucket {self.bucket_name} does not exist or is not accessible"
+                )
+
+    async def get(self, fn_id: str, arg_hash: str) -> Tuple[bool, Any]:
+        key = f"{self.prefix}{fn_id}/{arg_hash}"
+
+        async with self.session.client("s3", region_name=self.region_name) as s3:
+            try:
+                response = await s3.get_object(Bucket=self.bucket_name, Key=key)
+                async with response["Body"] as stream:
+                    data = await stream.read()
+                return True, pickle.loads(data)
+            except:
+                return False, None
+
+    async def set(self, fn_id: str, arg_hash: str, result: Any) -> None:
+        key = f"{self.prefix}{fn_id}/{arg_hash}"
+        pickled_data = pickle.dumps(result)
+
+        async with self.session.client("s3", region_name=self.region_name) as s3:
+            await s3.put_object(Bucket=self.bucket_name, Key=key, Body=pickled_data)
+
+    async def delete(self, fn_id: str, arg_hash: str) -> None:
+        key = f"{self.prefix}{fn_id}/{arg_hash}"
+
+        async with self.session.client("s3", region_name=self.region_name) as s3:
+            await s3.delete_object(Bucket=self.bucket_name, Key=key)
+
+    async def delete_all(self) -> None:
+        async with self.session.client("s3", region_name=self.region_name) as s3:
+            paginator = s3.get_paginator("list_objects_v2")
+            async for page in paginator.paginate(
+                Bucket=self.bucket_name, Prefix=self.prefix
+            ):
+                if "Contents" in page:
+                    objects = [{"Key": obj["Key"]} for obj in page["Contents"]]
+                    if objects:
+                        await s3.delete_objects(
+                            Bucket=self.bucket_name, Delete={"Objects": objects}
+                        )
+
+    async def delete_by_fn_id(self, fn_id: str) -> None:
+        prefix = f"{self.prefix}{fn_id}/"
+
+        async with self.session.client("s3", region_name=self.region_name) as s3:
+            paginator = s3.get_paginator("list_objects_v2")
+            async for page in paginator.paginate(
+                Bucket=self.bucket_name, Prefix=prefix
+            ):
+                if "Contents" in page:
+                    objects = [{"Key": obj["Key"]} for obj in page["Contents"]]
+                    if objects:
+                        await s3.delete_objects(
+                            Bucket=self.bucket_name, Delete={"Objects": objects}
+                        )
+
+
 class Cache:
     def __init__(self, backend: CacheBackend):
         self.backend = backend
@@ -279,3 +354,23 @@ class Cache:
         """Busts the entire cache"""
         await self.ensure_setup()
         await self.backend.delete_all()
+
+    async def set(self, key: str, value: Any) -> None:
+        """Directly set a value in the cache using a string key"""
+        await self.ensure_setup()
+        fn_id = "__direct"
+        arg_hash = hashlib.sha256(key.encode()).hexdigest()
+        await self.backend.set(fn_id, arg_hash, value)
+
+    async def get(self, key: str) -> Any:
+        """
+        Directly get a value from the cache using a string key
+        Raises KeyError if the key hasn't been set
+        """
+        await self.ensure_setup()
+        fn_id = "__direct"
+        arg_hash = hashlib.sha256(key.encode()).hexdigest()
+        cache_hit, result = await self.backend.get(fn_id, arg_hash)
+        if not cache_hit:
+            raise KeyError(f"No cache entry found for key: {key}")
+        return result

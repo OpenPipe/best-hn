@@ -168,3 +168,5 @@ data/
 wandb/
 reward_model_output/
 models/
+remote/
+rclone.conf

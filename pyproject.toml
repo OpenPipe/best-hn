@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     # "bitsandbytes>=0.44.1",
+    "aioboto3>=13.2.0",
+    # "bitsandbytes>=0.44.1",
     "datasets>=3.0.1",
     "dicttoxml>=1.7.16",
     # "flash-attn==2.6.3",
@@ -15,6 +17,8 @@ dependencies = [
     "jupyter>=1.1.1",
     # "liger-kernel>=0.3.1",
     "matplotlib>=3.9.2",
+    "modal>=0.65.48",
+    "moto[s3]>=5.0.20",
     "numpy>=1.26.4",
     "peft>=0.13.2",
     "plotly>=5.24.1",
@@ -22,6 +26,7 @@ dependencies = [
     "pytest-asyncio>=0.24.0",
     "pytest>=8.3.3",
     "python-dotenv>=1.0.1",
+    "s3fs>=2024.6.1",
     "schedulefree>=1.2.7",
     "scikit-learn>=1.5.2",
     "seaborn>=0.13.2",
