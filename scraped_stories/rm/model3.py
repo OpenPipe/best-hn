@@ -52,7 +52,7 @@ def main():
     )
 
     # Configuration
-    base_model = "unsloth/Meta-Llama-3.1-8B"
+    base_model = "unsloth/Llama-3.2-1B"
     run_name = __file__.split("/")[-1].replace(".py", "")
     output_dir = f"/remote/rm/models/{run_name}"
     num_epochs = 1
@@ -67,7 +67,7 @@ def main():
     logging.info("Loading dataset...")
     df = pl.read_parquet(
         f"s3://{os.getenv('REMOTE_BUCKET')}/scraped-stories-with-datetime.parquet"
-    )
+    ).sample(n=50000, seed=42)
     logging.info(f"Loaded {df.height} rows")
 
     logging.info("Loading tokenizer and model...")
@@ -106,7 +106,7 @@ def main():
     )
 
     logging.info("Transforming datasets...")
-    train_stories = create_dataset(df, "train", 1000000, tokenizer, max_length)
+    train_stories = create_dataset(df, "train", 50000, tokenizer, max_length)
     print(f"Train stories: {len(train_stories)}")
     validation_stories = create_dataset(df, "val", 500, tokenizer, max_length)
     print(f"Validation stories: {len(validation_stories)}")

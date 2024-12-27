@@ -22,6 +22,7 @@ dependencies = [
     "modal>=0.65.48",
     "moto[s3]>=5.0.20",
     "numpy>=1.26.4",
+    "panza",
     "peft>=0.13.2",
     "plotly>=5.24.1",
     "polars>=1.9.0",
@@ -43,3 +44,4 @@ dependencies = [
 
 [tool.uv.sources]
 transformers = { git = "https://github.com/huggingface/transformers" }
+panza = { git = "https://github.com/corbt/panza.git" }

@@ -394,6 +394,7 @@ dependencies = [
     { name = "modal" },
     { name = "moto", extra = ["s3"] },
     { name = "numpy" },
+    { name = "panza" },
     { name = "peft" },
     { name = "plotly" },
     { name = "polars" },
@@ -427,6 +428,7 @@ requires-dist = [
     { name = "modal", specifier = ">=0.65.48" },
     { name = "moto", extras = ["s3"], specifier = ">=5.0.20" },
     { name = "numpy", specifier = ">=1.26.4" },
+    { name = "panza", git = "https://github.com/corbt/panza.git" },
     { name = "peft", specifier = ">=0.13.2" },
     { name = "plotly", specifier = ">=5.24.1" },
     { name = "polars", specifier = ">=1.9.0" },
@@ -2486,6 +2488,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/70/6f/3dd4940bbe001c06a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ef/af/4fbc8cab944db5d21b7e2a5b8e9211a03a79852b1157e2c102fcc61ac440/pandocfilters-1.5.1-py2.py3-none-any.whl", hash = "sha256:93be382804a9cdb0a7267585f157e5d1731bbe5545a85b268d6f5fe6232de2bc", size = 8663 },
 ]
+
+[[package]]
+name = "panza"
+version = "0.1.0"
+source = { git = "https://github.com/corbt/panza.git#6680dc591c71c572aef477a41737e243a5d79a05" }
 
 [[package]]
 name = "paramiko"
