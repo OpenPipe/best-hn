@@ -1,73 +1,52 @@
-# uv run modal run --detach scraped_stories.rm.model1
-
-from .modal_app import app
-import modal
 import logging
-
-s3_bucket_name = "[placeholder]"
-
-if modal.is_local():
-    import os
-    from dotenv import load_dotenv
-
-    load_dotenv()
-
-    s3_bucket_name = os.getenv("REMOTE_BUCKET", "[placeholder]")
-    logging.info(f"Using S3 bucket: {s3_bucket_name}")
-
-
-@app.function(
-    secrets=[modal.Secret.from_dotenv(".env")],
-    gpu="H100",
-    memory=32768 * 2,
-    timeout=3600 * 24,
-    volumes={
-        "/remote": modal.CloudBucketMount(
-            bucket_name=s3_bucket_name,
-            secret=modal.Secret.from_dotenv(".env"),
-            read_only=False,
-        )
-    },
+import os
+import torch
+from datasets import Dataset
+from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments,
 )
-def main():
-    import os
-    import torch
-    from datasets import Dataset
-    from transformers import (
-        AutoModelForSequenceClassification,
-        AutoTokenizer,
-        Trainer,
-        TrainingArguments,
-    )
-    from peft.tuners.lora import LoraConfig
-    from peft.mapping import get_peft_model
-    import wandb
-    import polars as pl
-    from liger_kernel.transformers import _apply_liger_kernel_to_instance
-    from .training_helpers import (
-        compute_metrics,
-        run_final_inference_and_report_metrics,
-        MandT,
-        create_dataset,
-    )
+from peft.tuners.lora import LoraConfig
+from peft.mapping import get_peft_model
+import wandb
+import polars as pl
+from liger_kernel.transformers import _apply_liger_kernel_to_instance
+from training_helpers import (
+    compute_metrics,
+    run_final_inference_and_report_metrics,
+    MandT,
+    create_dataset,
+)
+import s3fs
+import typer
 
-    # Configuration
-    base_model = "unsloth/Meta-Llama-3.1-8B"
-    run_name = __file__.split("/")[-1].replace(".py", "")
-    output_dir = f"/remote/rm/models/{run_name}"
-    num_epochs = 1
-    batch_size = 4
-    gradient_accumulation_steps = 4
-    learning_rate = 2e-4
-    max_length = 4096
+
+def main(
+    run_name: str = typer.Option(
+        __file__.split("/")[-1].replace(".py", ""), help="Name of the run"
+    ),
+    num_epochs: int = typer.Option(1, help="Number of training epochs"),
+    batch_size: int = typer.Option(4, help="Batch size"),
+    gradient_accumulation_steps: int = typer.Option(
+        4, help="Gradient accumulation steps"
+    ),
+    learning_rate: float = typer.Option(2e-4, help="Learning rate"),
+    max_length: int = typer.Option(4096, help="Maximum token sequence length"),
+    train_size: int = typer.Option(100, help="Number of training examples to use"),
+    val_size: int = typer.Option(5, help="Number of validation examples to use"),
+    base_model: str = typer.Option("Qwen/Qwen2.5-0.5B", help="Base model"),
+):
+    output_dir = f"./models/{run_name}"
 
     # Initialize wandb
     wandb.init(project="hn_scraped_stories", name=run_name)
 
     logging.info("Loading dataset...")
     df = pl.read_parquet(
-        f"s3://{os.getenv('REMOTE_BUCKET')}/scraped-stories-with-datetime.parquet"
-    ).sample(n=50000, seed=42)
+        f"s3://{os.getenv('REMOTE_BUCKET')}/scraped-stories-filtered.parquet"
+    )
     logging.info(f"Loaded {df.height} rows")
 
     logging.info("Loading tokenizer and model...")
@@ -86,13 +65,11 @@ def main():
         torch_dtype=torch.bfloat16,
     )
     _apply_liger_kernel_to_instance(model=model)
-
     model.gradient_checkpointing_enable(
         gradient_checkpointing_kwargs={"use_reentrant": True}
     )
-
     model.config.pad_token_id = tokenizer.pad_token_id
-    tokenizer.padding_side = "right"
+    tokenizer.padding_side = "left"
 
     logging.info("Configuring LoRA...")
     model = get_peft_model(
@@ -106,12 +83,11 @@ def main():
     )
 
     logging.info("Transforming datasets...")
-    train_stories = create_dataset(df, "train", 50000, tokenizer, max_length)
+    train_stories = create_dataset(df, "train", train_size, tokenizer, max_length)
     print(f"Train stories: {len(train_stories)}")
-    validation_stories = create_dataset(df, "val", 500, tokenizer, max_length)
+    validation_stories = create_dataset(df, "val", val_size, tokenizer, max_length)
     print(f"Validation stories: {len(validation_stories)}")
 
-    # Configure training arguments
     training_args = TrainingArguments(
         output_dir=output_dir,
         num_train_epochs=num_epochs,
@@ -137,7 +113,7 @@ def main():
         args=training_args,
         train_dataset=train_stories,
         eval_dataset=validation_stories,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         compute_metrics=compute_metrics,
     )
 
@@ -153,10 +129,20 @@ def main():
         MandT(model, tokenizer), df, output_dir
     )
 
+    s3 = s3fs.S3FileSystem()
+
+    logging.info(
+        f"Uploading model to S3 at path s3://{os.getenv('REMOTE_BUCKET')}/models/{run_name}"
+    )
+    s3.put(
+        output_dir,
+        f"s3://{os.getenv('REMOTE_BUCKET')}/models/{run_name}",
+        recursive=True,
+        maxdepth=1,
+    )
+
     logging.info("Model training complete")
 
 
-@app.local_entrypoint()
-def main_local():
-    print("Running main locally")
-    main.remote()
+if __name__ == "__main__":
+    typer.run(main)

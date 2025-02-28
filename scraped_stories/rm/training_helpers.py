@@ -1,13 +1,13 @@
 from typing import Optional
-import torch
-import polars as pl
-from scipy.stats import pearsonr
-from sklearn.metrics import root_mean_squared_error
-import wandb
-from .inference import run_inference_transformers, ModelOrPath, MandT, load_model
+import torch  # type: ignore
+import polars as pl  # type: ignore
+from scipy.stats import pearsonr  # type: ignore
+from sklearn.metrics import root_mean_squared_error  # type: ignore
+import wandb  # type: ignore
+from inference import run_inference_transformers, ModelOrPath, MandT, load_model
 import math
 import logging
-from datasets import Dataset
+from datasets import Dataset  # type: ignore
 
 # Configure logging
 logging.basicConfig(
@@ -15,6 +15,12 @@ logging.basicConfig(
     format="[%(asctime)s %(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+
+
+def serialize_story(story):
+    string = f"""<submitter>{story["by"]}</submitter>\n<url>{story["url"]}</url>\n<date>{story["time"].strftime("%Y-%m-%d")}</date>\n\n<body>{story["scraped_body"]}</body>\n<title>{story["title"]}</title>"""
+
+    return string
 
 
 def compute_metrics(eval_pred):
@@ -36,7 +42,7 @@ def compute_metrics(eval_pred):
 
 
 def run_final_inference_and_report_metrics(
-    model_or_path: ModelOrPath, dataset=None, output_dir: Optional[str] = None
+    model_or_path: ModelOrPath, dataset: pl.DataFrame, output_dir: Optional[str] = None
 ):
     if output_dir is None:
         if not isinstance(model_or_path, str):
@@ -47,33 +53,29 @@ def run_final_inference_and_report_metrics(
 
     predictions_path = f"{output_dir}/dataset_predictions.parquet"
 
-    if dataset is None:
-        raise ValueError("dataset is required")
-
     # Check if predictions file already exists
     try:
         existing_predictions = pl.read_parquet(predictions_path)
         print(f"Loading existing predictions from {predictions_path}")
-        stories = dataset.select(["id", "log_score", "split"])
+        stories = dataset.select(["id", "label", "split"])
         stories = stories.join(existing_predictions, on="id")
     except:
-        # Original inference logic
         mandt = load_model(model_or_path)
         model = mandt.model
-        tokenizer = mandt.tokenizer
 
         if hasattr(model, "merge_and_unload"):
             print("Merging PEFT model with base model...")
             model = model.merge_and_unload()
 
-        stories = dataset.select(["id", "log_score", "split", "serialized"])
-        predictions = run_inference_transformers(stories["serialized"].to_list(), mandt)
-        stories = stories.with_columns(
+        dataset = with_training_columns(dataset)
+
+        predictions = run_inference_transformers(dataset["text"].to_list(), mandt)
+        dataset = dataset.with_columns(
             pl.Series(name="predictions", values=predictions)
         )
-        stories.select("id", "predictions").write_parquet(predictions_path)
+        dataset.select("id", "predictions").write_parquet(predictions_path)
 
-    metrics = calculate_metrics_by_split(stories)
+    metrics = calculate_metrics_by_split(dataset)
 
     print(metrics)
 
@@ -95,7 +97,7 @@ def calculate_metrics_by_split(df: pl.DataFrame) -> pl.DataFrame:
     Calculate correlation and RMSE metrics for each split in the dataset.
 
     Args:
-        df: DataFrame with log_score, predictions and split columns
+        df: DataFrame with label, predictions and split columns
 
     Returns:
         DataFrame with metrics for each split
@@ -106,19 +108,16 @@ def calculate_metrics_by_split(df: pl.DataFrame) -> pl.DataFrame:
         split_df = df.filter(pl.col("split") == split)
 
         # Calculate baseline (mean) metrics
-        average_score = split_df["log_score"].mean()
+        average_score = split_df["label"].mean()
         rmse_baseline = math.sqrt(
-            (split_df["log_score"] - average_score).pow(2).sum() / len(split_df)
+            (split_df["label"] - average_score).pow(2).sum() / len(split_df)
         )
 
         # Calculate model metrics
         rmse_model = math.sqrt(
-            (split_df["log_score"] - split_df["predictions"]).pow(2).sum()
-            / len(split_df)
+            (split_df["label"] - split_df["predictions"]).pow(2).sum() / len(split_df)
         )
-        correlation_model = split_df.select(pl.corr("log_score", "predictions"))[
-            "log_score"
-        ][0]
+        correlation_model = split_df.select(pl.corr("label", "predictions"))["label"][0]
 
         metrics.append(
             {
@@ -133,6 +132,17 @@ def calculate_metrics_by_split(df: pl.DataFrame) -> pl.DataFrame:
     return pl.DataFrame(metrics)
 
 
+def with_training_columns(df: pl.DataFrame) -> pl.DataFrame:
+    return df.with_columns(
+        [
+            pl.col("score").log().alias("label"),
+            pl.struct(["title", "by", "time", "scraped_body", "url"])
+            .map_elements(serialize_story, return_dtype=pl.Utf8)
+            .alias("text"),
+        ]
+    )
+
+
 def create_dataset(
     df: pl.DataFrame,
     split: str,
@@ -141,14 +151,8 @@ def create_dataset(
     max_len: int,
     n_proc: int = 4,
 ):
-    df = df.with_columns(pl.col("score").log().alias("log_score"))
     df = df.filter(pl.col("split") == split).head(num_rows)
-    df = df.with_columns(
-        [
-            pl.col("serialized").alias("text"),
-            pl.col("log_score").alias("label"),
-        ]
-    )
+    df = with_training_columns(df)
     dataset = Dataset.from_polars(df.select(["text", "label"]))
 
     def tokenize_function(examples):
