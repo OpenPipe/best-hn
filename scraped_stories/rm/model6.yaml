@@ -1,0 +1,49 @@
+resources:
+  image_id: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
+  cloud: runpod
+  accelerators:
+    - H100-SXM
+
+workdir: .
+
+envs:
+  WANDB_API_KEY: null
+  HF_HUB_ENABLE_HF_TRANSFER: 1
+
+setup: |
+  apt-get update && apt-get install -y git
+
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+
+  # Source the environment to make uv available
+  source $HOME/.local/bin/env
+
+  uv pip install --system \
+    transformers==4.49.0 \
+    peft==0.14.0 \
+    liger-kernel==0.5.4 \
+    datasets==3.3.2 \
+    wandb==0.19.7 \
+    s3fs==2024.12.0 \
+    polars==1.23.0 \
+    scipy==1.15.2 \
+    scikit-learn==1.6.1 \
+    hf-transfer==0.1.9 \
+    typer==0.15.2
+
+  uv pip install --system --no-build-isolation \
+    flash-attn==2.7.4.post1
+  echo "Setup complete"
+
+run: |
+  echo "Running train_rm.py"
+  uv run python rm/train_rm.py \
+    --run-name model6 \
+    --base-model unsloth/Llama-3.2-1B \
+    --num-epochs 1 \
+    --batch-size 4 \
+    --gradient-accumulation-steps 4 \
+    --learning-rate 2e-4 \
+    --max-length 4096 \
+    --train-size 300000 \
+    --val-size 500 \
