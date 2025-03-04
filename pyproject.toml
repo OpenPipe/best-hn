@@ -33,7 +33,7 @@ dependencies = [
     "schedulefree>=1.2.7",
     "scikit-learn>=1.5.2",
     "seaborn>=0.13.2",
-    "skypilot[gcp,runpod]>=0.7.0",
+    "skypilot[runpod]>=0.8.0",
     # "sglang[all]>=0.3.3.post1",
     "torch==2.4.0",
     "tqdm>=4.66.5",

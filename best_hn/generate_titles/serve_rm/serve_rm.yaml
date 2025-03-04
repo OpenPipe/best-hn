@@ -1,0 +1,42 @@
+# To launch: `uv run sky launch serve_rm/serve_rm.yaml --cluster hn-reward-model --env-file ../.env --yes --retry-until-up`
+# To get endpoint url: `uv run sky status hn-reward-model --endpoint 80`
+
+resources:
+  image_id: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
+  cloud: runpod
+  region: US
+  ports: 80
+  accelerators:
+    - "RTX4090"
+
+workdir: .
+
+envs:
+  HF_HUB_ENABLE_HF_TRANSFER: 1
+  REWARD_MODEL_NAME: s3://best-hn-data/models/model6
+
+setup: |
+  apt-get update && apt-get install -y git
+
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+
+  # Source the environment to make uv available
+  source $HOME/.local/bin/env
+
+  uv pip install --system \
+    transformers==4.49.0 \
+    peft==0.14.0 \
+    liger-kernel==0.5.4 \
+    datasets==3.3.2 \
+    s3fs==2024.12.0 \
+    hf-transfer==0.1.9 \
+    typer==0.15.2 \
+    fastapi==0.115.11 \
+    uvicorn==0.34.0 \
+    python-dotenv==1.0.1
+
+  uv pip install --system --no-build-isolation \
+    flash-attn==2.7.4.post1
+  echo "Setup complete"
+
+run: uv run python serve_rm/serve_rm.py
