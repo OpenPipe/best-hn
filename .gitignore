@@ -170,3 +170,4 @@ reward_model_output/
 models/
 remote/
 rclone.conf
+*.db
