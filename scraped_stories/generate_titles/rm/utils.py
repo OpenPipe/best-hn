@@ -1,5 +1,22 @@
 import polars as pl
 import math
+from pydantic import BaseModel, Field, field_serializer
+from datetime import datetime
+from typing import Optional
+
+
+class ScoreRequest(BaseModel):
+    title: str = Field(..., description="The title of the story")
+    by: str = Field(..., description="The submitter of the story")
+    time: str = Field(..., description="The submission time of the story")
+    scraped_body: str = Field(..., description="The body content of the story")
+    url: Optional[str] = Field(None, description="The URL of the story")
+
+    @field_serializer("time")
+    def serialize_time(self, value: datetime) -> str:
+        if isinstance(value, str):
+            return value
+        return value.isoformat()
 
 
 def serialize_story(story):

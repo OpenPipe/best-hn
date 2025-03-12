@@ -33,10 +33,11 @@ setup: |
     typer==0.15.2 \
     fastapi==0.115.11 \
     uvicorn==0.34.0 \
-    python-dotenv==1.0.1
+    python-dotenv==1.0.1 \
+    polars==1.24.0
 
   uv pip install --system --no-build-isolation \
     flash-attn==2.7.4.post1
   echo "Setup complete"
 
-run: uv run python serve_rm/serve_rm.py
+run: cd scraped_stories/generate_titles && python -m rm.serve_rm.serve_rm

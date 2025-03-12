@@ -17,7 +17,8 @@ from datasets import load_dataset
 from panza import SQLiteCache, limit_concurrency
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
-from rm.utils import serialize_story
+from rm.utils import ScoreRequest
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -93,21 +94,23 @@ async def call_openrouter(
 
 @cache.cache()
 @limit_concurrency(10)
-async def score_title(serialized_story: str, _reward_model: str) -> float:
-    """Get the reward model score for a serialized story asynchronously.
+async def score_title(story_dict: Dict, _reward_model: str) -> float:
+    """Get the reward model score for a story asynchronously.
 
     Args:
-        serialized_story: The complete serialized story string (including submitter,
-                          URL, date, body, and title).
+        story_dict: Dictionary containing story data with keys: title, by, time, scraped_body, url
         _reward_model: Identifier for the reward model (unused here).
 
     Returns:
         The score returned by the reward model.
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=60.0) as client:
         try:
+            # Clone the story_dict to avoid modifying the original
+            request_dict = story_dict.copy()
+            request_dict["time"] = request_dict["time"].isoformat()
             response = await client.post(
-                REWARD_MODEL_URL, json={"text": serialized_story}
+                REWARD_MODEL_URL, json=ScoreRequest(**request_dict).model_dump()
             )
             response.raise_for_status()
             data = response.json()
@@ -166,8 +169,7 @@ async def process_item(item: Dict, model_name: str) -> Dict:
             "scraped_body": body,
             "title": title,
         }
-        serialized_generated_story = serialize_story(generated_story)
-        score = await score_title(serialized_generated_story, CURRENT_REWARD_MODEL)
+        score = await score_title(generated_story, CURRENT_REWARD_MODEL)
 
         # Build and serialize the original story if available
         if original_title:
@@ -178,10 +180,7 @@ async def process_item(item: Dict, model_name: str) -> Dict:
                 "scraped_body": body,
                 "title": original_title,
             }
-            serialized_original_story = serialize_story(original_story)
-            rm_score_original = await score_title(
-                serialized_original_story, CURRENT_REWARD_MODEL
-            )
+            rm_score_original = await score_title(original_story, CURRENT_REWARD_MODEL)
         else:
             rm_score_original = None
 
@@ -208,10 +207,7 @@ async def process_item(item: Dict, model_name: str) -> Dict:
                 "scraped_body": body,
                 "title": original_title,
             }
-            serialized_original_story = serialize_story(original_story)
-            rm_score_original = await score_title(
-                serialized_original_story, CURRENT_REWARD_MODEL
-            )
+            rm_score_original = await score_title(original_story, CURRENT_REWARD_MODEL)
         else:
             rm_score_original = None
         return {
@@ -278,6 +274,7 @@ async def benchmark_model(model_name: str, dataset: List[Dict]) -> Dict:
 
 async def main():
     # await call_openrouter.bust_cache()
+    # await score_title.bust_cache()
     parser = argparse.ArgumentParser(
         description="Benchmark LLMs against a reward model"
     )

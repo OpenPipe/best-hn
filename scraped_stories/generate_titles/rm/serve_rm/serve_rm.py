@@ -1,15 +1,21 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_serializer
 import os
 import torch
 import uvicorn
+from datetime import datetime
+from typing import Optional
+import logging
+import time
 
 from dotenv import load_dotenv  # load environment variables from .env
 import s3fs
 import hashlib
 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from peft import PeftModel, PeftConfig
+from peft.peft_model import PeftModel
+from peft.config import PeftConfig
+from rm.utils import serialize_story, ScoreRequest
 from liger_kernel.transformers import _apply_liger_kernel_to_instance
 
 # Load .env file to retrieve S3 credentials and other environment variables.
@@ -17,9 +23,8 @@ load_dotenv()
 
 app = FastAPI()
 
-
-class ScoreRequest(BaseModel):
-    text: str
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class ScoreResponse(BaseModel):
@@ -76,19 +81,36 @@ model.eval()
 
 @app.post("/score")
 async def get_score(request: ScoreRequest) -> ScoreResponse:
+    start_time = time.time()  # Added to record request start time
     try:
-        # Tokenize the input text.
+        # Convert Pydantic model to dict and serialize the story
+        story_dict = request.model_dump()
+        story_dict["time"] = datetime.fromisoformat(story_dict["time"])
+        serialized_text = serialize_story(story_dict)
+
+        # Tokenize the serialized text
         inputs = tokenizer(
-            request.text, return_tensors="pt", padding=True, truncation=True
+            serialized_text, return_tensors="pt", padding=True, truncation=True
         )
-        # Move tensors to the same device as the model.
+        token_count = inputs["input_ids"].shape[-1]  # Log the number of input tokens
+        # Move tensors to the same device as the model
         inputs = {k: v.to(model.device) for k, v in inputs.items()}
+
         with torch.no_grad():
             outputs = model(**inputs)
-        # Assume the merged model returns logits with shape [1,1] and use that as the score.
+
+        # Assume the merged model returns logits with shape [1,1] and use that as the score
         score = outputs.logits[0][0].item()
+
+        duration = time.time() - start_time
+        logger.info(
+            f"Request completed: input tokens: {token_count}, duration: {duration:.2f}s"
+        )
         return ScoreResponse(score=score, version="0.1")
     except Exception as e:
+        duration = time.time() - start_time
+        logger.info(f"Request failed: duration: {duration:.2f}s")
+        logger.exception("Error in /score endpoint")
         raise HTTPException(status_code=500, detail=str(e))
 
 
