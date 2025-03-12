@@ -2,7 +2,16 @@ import polars as pl
 import math
 from pydantic import BaseModel, Field, field_serializer
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
+import os
+from panza import SQLiteCache, limit_concurrency
+import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
+
+cache_db_path = os.path.join(os.path.dirname(__file__), "shared_cache.db")
+cache = SQLiteCache(cache_db_path)
 
 
 class ScoreRequest(BaseModel):
@@ -73,3 +82,37 @@ def calculate_metrics_by_split(df: pl.DataFrame) -> pl.DataFrame:
         )
 
     return pl.DataFrame(metrics)
+
+
+REWARD_MODEL_URL = os.getenv("REWARD_MODEL_URL", "http://localhost:80/score")
+
+
+@cache.cache()
+@limit_concurrency(10)
+async def score_title(story_dict: Dict, _reward_model: str) -> float:
+    """Get the reward model score for a story asynchronously.
+
+    Args:
+        story_dict: Dictionary containing story data with keys: title, by, time, scraped_body, url
+        _reward_model: Identifier for the reward model (unused here).
+
+    Returns:
+        The score returned by the reward model.
+    """
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            # Clone the story_dict to avoid modifying the original
+            request_dict = story_dict.copy()
+            request_dict["time"] = request_dict["time"].isoformat()
+            response = await client.post(
+                REWARD_MODEL_URL, json=ScoreRequest(**request_dict).model_dump()
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["score"]
+        except httpx.TimeoutException:
+            print(f"Timeout connecting to reward model at {REWARD_MODEL_URL}")
+            return 0.0  # Return a default score on timeout
+        except Exception as e:
+            print(f"Error connecting to reward model: {str(e)}")
+            return 0.0  # Return a default score on error
