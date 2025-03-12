@@ -171,3 +171,5 @@ models/
 remote/
 rclone.conf
 *.db
+
+benchmark_results.json
