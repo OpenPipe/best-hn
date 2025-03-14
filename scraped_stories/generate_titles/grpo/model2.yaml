@@ -12,6 +12,7 @@ workdir: .
 
 envs:
   HF_HUB_ENABLE_HF_TRANSFER: 1
+  REWARD_MODEL_URL:
 
 setup: |
   apt-get update && apt-get install -y git
@@ -31,18 +32,19 @@ setup: |
     fastapi==0.115.11 \
     python-dotenv==1.0.1 \
     polars==1.24.0 \
-    wandb==0.19.8
+    wandb==0.19.8 \
+    git+https://github.com/corbt/panza.git \
 
   echo "Setup complete"
 
 run: |
   echo "Running train_grpo.py"
-  cd scraped_stories/generate_titles && python -m grpo.train_grpo \
-    --run-name model1 \
+  python -m scraped_stories.generate_titles.grpo.train_grpo \
+    --run-name model2 \
     --max-seq-length 8192 \
     --lora-rank 16 \
     --base-model unsloth/Qwen2.5-14B-Instruct \
-    --load-in-4bit \
+    --no-load-in-4bit \
     --fast-inference \
     --gpu-memory-utilization 0.7 \
     --learning-rate 5e-6 \
@@ -50,15 +52,19 @@ run: |
     --adam-beta2 0.99 \
     --weight-decay 0.1 \
     --warmup-ratio 0.1 \
-    --lr-scheduler-type cosine \
+    --lr-scheduler-type constant \
     --optim paged_adamw_8bit \
-    --logging-steps 1 \
+    --logging-steps 5 \
     --per-device-train-batch-size 1 \
     --gradient-accumulation-steps 1 \
     --num-generations 6 \
-    --max-prompt-length 256 \
-    --max-completion-length 200 \
-    --max-steps 100 \
+    --num-epochs 5 \
+    --max-prompt-length 8192 \
+    --max-completion-length 512 \
     --save-steps 250 \
     --max-grad-norm 0.1 \
-    --output-dir outputs
+    --output-dir outputs \
+    --val-set-size 100 \
+    --val-samples-to-log 5 \
+    --eval-steps 50 \
+    --training-dataset-size 5000

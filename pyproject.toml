@@ -42,9 +42,18 @@ dependencies = [
     "tqdm>=4.66.5",
     "transformers>=4.45.2",
     "trl>=0.11.4",
+    "unsloth>=2025.3.10",
+    "vllm>=0.6.3.post1",
     "wandb>=0.18.3",
 ]
 
 [tool.uv.sources]
 transformers = { git = "https://github.com/huggingface/transformers" }
 panza = { git = "https://github.com/corbt/panza.git" }
+
+[tool.uv]
+managed = true
+override-dependencies = [
+    "bitsandbytes; sys_platform == 'never'",
+    "xformers; sys_platform == 'never'",
+]

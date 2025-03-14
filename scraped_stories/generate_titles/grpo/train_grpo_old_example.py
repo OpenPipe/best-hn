@@ -9,56 +9,104 @@ import typer
 import wandb
 from transformers import TrainerCallback, AutoTokenizer
 import numpy as np
-from typing import Callable, Optional
-import asyncio
-from ..rm.utils import score_title
-from ..utils import pull_data, cache, prompt_for_title
+from typing import Callable
 
 load_dotenv()
 
+# Load and prep dataset
+SYSTEM_PROMPT = """
+Respond in the following format:
+<reasoning>
+...
+</reasoning>
+<answer>
+...
+</answer>
+"""
 
-@cache.cache()
-async def load_data(
-    split: str = "train",
-    max_items: int = 10,
-    min_score: int = 20,
-    max_length: int = 8192,
-    tokenizer_name: str = "unsloth/Qwen2.5-14B-Instruct",
-) -> Dataset:
-    data = pull_data(split=split, max_items=max_items, min_score=min_score)
+
+def extract_xml_answer(text: str) -> str:
+    answer = text.split("<answer>")[-1]
+    answer = answer.split("</answer>")[0]
+    return answer.strip()
+
+
+def extract_hash_answer(text: str) -> str | None:
+    if "####" not in text:
+        return None
+    return text.split("####")[1].strip()
+
+
+# uncomment middle messages for 1-shot prompting
+def get_gsm8k_questions(split="train") -> Dataset:
+    data = load_dataset("openai/gsm8k", "main")[split]  # type: ignore
     data = data.map(
-        lambda x: {
-            "prompt": prompt_for_title(x["scraped_body"]),
-            "row": x,
+        lambda x: {  # type: ignore
+            "prompt": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": x["question"]},
+            ],
+            "answer": extract_hash_answer(x["answer"]),
         }
-    )
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-
-    def check_length(x):
-        return (
-            len(
-                tokenizer.apply_chat_template(
-                    x["prompt"], tokenize=True, add_generation_prompt=True
-                )
-            )
-            <= max_length
-        )
-
-    len_before = len(data)
-    data = data.filter(check_length)
-    print(f"Samples before: {len_before}, samples after: {len(data)}")
-    return data
+    )  # type: ignore
+    return data  # type: ignore
 
 
-def title_reward(prompts, completions, row, **kwargs) -> list[float]:
+# Reward functions
+def correctness_reward_func(prompts, completions, answer, **kwargs) -> list[float]:
     responses = [completion[0]["content"] for completion in completions]
-    updated_rows = [{**r, "title": response} for r, response in zip(row, responses)]
+    q = prompts[0][-1]["content"]
+    extracted_responses = [extract_xml_answer(r) for r in responses]
+    print(
+        "-" * 20,
+        f"Question:\n{q}",
+        f"\nAnswer:\n{answer[0]}",
+        f"\nResponse:\n{responses[0]}",
+        f"\nExtracted:\n{extracted_responses[0]}",
+    )
+    return [2.0 if r == a else 0.0 for r, a in zip(extracted_responses, answer)]
 
-    async def run_scores():
-        await score_title.bust_cache()
-        return await asyncio.gather(*[score_title(r, "rm") for r in updated_rows])
 
-    return asyncio.run(run_scores())
+def int_reward_func(completions, **kwargs) -> list[float]:
+    responses = [completion[0]["content"] for completion in completions]
+    extracted_responses = [extract_xml_answer(r) for r in responses]
+    return [0.5 if r.isdigit() else 0.0 for r in extracted_responses]
+
+
+def strict_format_reward_func(completions, **kwargs) -> list[float]:
+    """Reward function that checks if the completion has a specific format."""
+    pattern = r"^<reasoning>\n.*?\n</reasoning>\n<answer>\n.*?\n</answer>\n$"
+    responses = [completion[0]["content"] for completion in completions]
+    matches = [re.match(pattern, r) for r in responses]
+    return [0.5 if match else 0.0 for match in matches]
+
+
+def soft_format_reward_func(completions, **kwargs) -> list[float]:
+    """Reward function that checks if the completion has a specific format."""
+    pattern = r"<reasoning>.*?</reasoning>\s*<answer>.*?</answer>"
+    responses = [completion[0]["content"] for completion in completions]
+    matches = [re.match(pattern, r) for r in responses]
+    return [0.5 if match else 0.0 for match in matches]
+
+
+def count_xml(text) -> float:
+    count = 0.0
+    if text.count("<reasoning>\n") == 1:
+        count += 0.125
+    if text.count("\n</reasoning>\n") == 1:
+        count += 0.125
+    if text.count("\n<answer>\n") == 1:
+        count += 0.125
+        count -= len(text.split("\n</answer>\n")[-1]) * 0.001
+    if text.count("\n</answer>") == 1:
+        count += 0.125
+        count -= (len(text.split("\n</answer>")[-1]) - 1) * 0.001
+    return count
+
+
+def xmlcount_reward_func(completions, **kwargs) -> list[float]:
+    contents = [completion[0]["content"] for completion in completions]
+    return [count_xml(c) for c in contents]
 
 
 class ValidationCallback(TrainerCallback):
@@ -93,14 +141,19 @@ class ValidationCallback(TrainerCallback):
         )
         outputs = [o.outputs[0].text for o in outputs]
 
+        print("outputs are")
+        print(outputs)
+
         scores = self.reward_func(
             self.val_dataset["prompt"],
             [
                 [{"content": o}] for o in outputs
             ],  # adapt to the shape the reward function expects
-            self.val_dataset["row"],
+            self.val_dataset["answer"],
         )
-        wandb.log({"val/reward": np.mean(scores)}, step=state.global_step)
+        print(f"rewards are")
+        print(scores)
+        wandb.log({f"val/reward": np.mean(scores)}, step=state.global_step)
 
         generations_to_log = self.val_generations_to_log_to_wandb
         if generations_to_log == 0:
@@ -167,47 +220,21 @@ def main(
     num_generations: int = typer.Option(6, help="Number of generations"),
     max_prompt_length: int = typer.Option(256, help="Max prompt length"),
     max_completion_length: int = typer.Option(200, help="Max completion length"),
-    max_steps: int = typer.Option(-1, help="Maximum training steps"),
+    max_steps: int = typer.Option(100, help="Maximum training steps"),
     save_steps: int = typer.Option(250, help="Steps interval for saving"),
     max_grad_norm: float = typer.Option(0.1, help="Maximum gradient norm"),
     output_dir: str = typer.Option("outputs", help="Output directory"),
-    training_dataset_size: int = typer.Option(
-        10, help="Number of training samples to load"
-    ),
     val_set_size: int = typer.Option(5, help="Number of validation samples to use"),
     val_samples_to_log: int = typer.Option(
         5, help="Number of validation samples to log to wandb"
     ),
     eval_steps: int = typer.Option(1, help="Evaluate every N training steps"),
-    num_epochs: int = typer.Option(1, help="Number of training epochs"),
 ) -> None:
     wandb.init(project="hn_title_generation", name=run_name)
-
-    dataset = asyncio.run(
-        load_data(
-            split="train",
-            max_items=training_dataset_size,
-            min_score=20,
-            max_length=max_prompt_length,
-            tokenizer_name=base_model,
-        )
-    )
-    val_dataset = asyncio.run(
-        load_data(
-            split="val",
-            max_items=val_set_size,
-            min_score=20,
-            max_length=max_prompt_length,
-            tokenizer_name=base_model,
-        )
-    )
-    print(f"Training dataset size: {len(dataset)}")
-    print(f"Validation dataset size: {len(val_dataset)}")
-
     # Load model and tokenizer using the provided hyperparameters
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=base_model,
-        max_seq_length=max_prompt_length + max_completion_length,
+        max_seq_length=max_seq_length,
         load_in_4bit=load_in_4bit,
         fast_inference=fast_inference,
         max_lora_rank=lora_rank,
@@ -222,6 +249,13 @@ def main(
         random_state=3407,
     )
 
+    # Load dataset
+    dataset = get_gsm8k_questions()
+    val_dataset = (
+        get_gsm8k_questions(split="test").shuffle(seed=42).select(range(val_set_size))
+    )
+
+    # Set up GRPO training arguments using command-line hyperparameters
     training_args = GRPOConfig(
         use_vllm=True,
         learning_rate=learning_rate,
@@ -244,13 +278,18 @@ def main(
         max_grad_norm=max_grad_norm,
         report_to="wandb",
         output_dir=output_dir,
-        num_train_epochs=num_epochs,
     )
 
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
-        reward_funcs=title_reward,
+        reward_funcs=[  # type: ignore
+            xmlcount_reward_func,
+            soft_format_reward_func,
+            strict_format_reward_func,
+            int_reward_func,
+            correctness_reward_func,
+        ],
         args=training_args,
         train_dataset=dataset,
     )
@@ -258,14 +297,57 @@ def main(
         val_dataset=val_dataset,
         tokenizer=tokenizer,
         max_completion_length=max_completion_length,
-        reward_func=title_reward,
+        reward_func=correctness_reward_func,
         val_generations_to_log_to_wandb=val_samples_to_log,
         eval_steps=eval_steps,
     )
     trainer.add_callback(validation_callback)
     trainer.train()
 
+    # Test generation
+    text = tokenizer.apply_chat_template(
+        [
+            {"role": "user", "content": "Which is bigger? 9.11 or 9.9?"},
+        ],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    sampling_params = SamplingParams(
+        temperature=0.8,
+        top_p=0.95,
+        max_tokens=1024,
+    )
+    output_text = (
+        model.fast_generate(
+            [text],
+            sampling_params=sampling_params,
+            lora_request=None,
+        )[0]
+        .outputs[0]
+        .text
+    )
+    print("Output:", output_text)
+
     model.save_lora("grpo_saved_lora")
+
+    text2 = tokenizer.apply_chat_template(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": "Which is bigger? 9.11 or 9.9?"},
+        ],
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    output_text2 = (
+        model.fast_generate(
+            text2,
+            sampling_params=sampling_params,
+            lora_request=model.load_lora("grpo_saved_lora"),
+        )[0]
+        .outputs[0]
+        .text
+    )
+    print("Output after loading LoRA:", output_text2)
 
 
 if __name__ == "__main__":

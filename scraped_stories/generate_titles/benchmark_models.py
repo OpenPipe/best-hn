@@ -10,15 +10,14 @@ import asyncio
 from typing import Dict, List, Tuple
 import argparse
 import statistics
-import httpx
 from tqdm.asyncio import tqdm
 from dotenv import load_dotenv
 from datasets import load_dataset
-from panza import SQLiteCache, limit_concurrency
+from panza import limit_concurrency
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
-from rm.utils import ScoreRequest, cache
-from datetime import datetime
+from .utils import cache, prompt_for_title, pull_data
+from .rm.utils import score_title
 
 # Load environment variables
 load_dotenv()
@@ -43,14 +42,6 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 openrouter_client = AsyncOpenAI(
     api_key=OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1"
 )
-
-
-def load_validation_dataset(max_items: int = 10) -> List[Dict]:
-    print(f"Loading dataset from HuggingFace (max {max_items} items)...")
-    dataset = load_dataset("OpenPipe/hacker-news-scraped-stories-filtered", split="val")
-
-    # Get first max_items records as a list of dicts
-    return list(dataset)[:max_items]
 
 
 @cache.cache()
@@ -100,16 +91,7 @@ async def process_item(item: Dict, model_name: str) -> Dict:
     start_time = time.time()
     try:
         truncated_content = body[:4000] if body else ""
-        messages = [
-            {
-                "role": "system",
-                "content": "You are a helpful assistant that generates engaging titles for Hacker News posts. Respond with just the title, no other text.",
-            },
-            {
-                "role": "user",
-                "content": f"Generate a concise, engaging title for this Hacker News submission. The title should be informative yet catchy.\n\nURL: {url}\n\nContent: {truncated_content}",
-            },
-        ]
+        messages = prompt_for_title(truncated_content)
 
         api_response, api_time = await call_openrouter(
             model_name, messages, max_tokens=5000
@@ -189,7 +171,7 @@ async def process_item(item: Dict, model_name: str) -> Dict:
         }
 
 
-async def benchmark_model(model_name: str, dataset: List[Dict]) -> Dict:
+async def benchmark_model(model_name: str, dataset: list[dict]) -> dict:
     """Benchmark a single model on the dataset asynchronously."""
     tasks = [asyncio.create_task(process_item(item, model_name)) for item in dataset]
     results = await tqdm.gather(
@@ -259,7 +241,9 @@ async def main():
     args = parser.parse_args()
 
     # Always load the validation dataset from HuggingFace.
-    dataset = load_validation_dataset(max_items=args.max_samples)
+    dataset: list[dict] = list(
+        pull_data(split="val", max_items=args.max_samples, min_score=20)
+    )  # type: ignore
     print(f"Loaded validation dataset with {len(dataset)} items")
 
     # Determine which models to benchmark.
@@ -297,14 +281,6 @@ async def main():
 
     # For simplicity, we do not compute overall metrics here.
     results = stories
-
-    # Print interim story summaries
-    for story_id, story in results.items():
-        print(f"\nStory ID: {story_id}")
-        print(f"  Original Title: {story['original_title']}")
-        print(f"  Original Score (from dataset): {story['original_score']}")
-        print(f"  RM Score for Original Title: {story['rm_score_original']}")
-        print(f"  Content Snippet: {story['scraped_body'][:100]}")
 
     # Save full results by story.
     output_file = os.path.join(script_dir, args.output)

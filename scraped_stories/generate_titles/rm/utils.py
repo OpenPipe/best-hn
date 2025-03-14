@@ -4,14 +4,9 @@ from pydantic import BaseModel, Field, field_serializer
 from datetime import datetime
 from typing import Optional, Dict
 import os
-from panza import SQLiteCache, limit_concurrency
+from panza import limit_concurrency
 import httpx
-from dotenv import load_dotenv
-
-load_dotenv()
-
-cache_db_path = os.path.join(os.path.dirname(__file__), "shared_cache.db")
-cache = SQLiteCache(cache_db_path)
+from ..utils import cache
 
 
 class ScoreRequest(BaseModel):
@@ -85,6 +80,8 @@ def calculate_metrics_by_split(df: pl.DataFrame) -> pl.DataFrame:
 
 
 REWARD_MODEL_URL = os.getenv("REWARD_MODEL_URL", "http://localhost:80/score")
+
+print(f"REWARD_MODEL_URL: {REWARD_MODEL_URL}")
 
 
 @cache.cache()
