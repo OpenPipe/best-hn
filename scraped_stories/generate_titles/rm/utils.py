@@ -85,7 +85,6 @@ print(f"REWARD_MODEL_URL: {REWARD_MODEL_URL}")
 
 
 @cache.cache()
-@limit_concurrency(10)
 async def score_title(story_dict: Dict, _reward_model: str) -> float:
     """Get the reward model score for a story asynchronously.
 
@@ -96,7 +95,7 @@ async def score_title(story_dict: Dict, _reward_model: str) -> float:
     Returns:
         The score returned by the reward model.
     """
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=600.0) as client:
         try:
             # Clone the story_dict to avoid modifying the original
             request_dict = story_dict.copy()

@@ -1,4 +1,4 @@
-# To launch: `uv run sky launch scraped_stories/generate_titles/grpo/model2.yaml --cluster=hn-grpo-1 --env-file=.env --yes --retry-until-up`
+# To launch: `uv run sky launch scraped_stories/generate_titles/grpo/debug.yaml --cluster=hn-grpo-1 --env-file=.env --yes --retry-until-up`
 
 resources:
   image_id: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
@@ -39,9 +39,10 @@ setup: |
 run: |
   echo "Running train_grpo.py"
   python -m scraped_stories.generate_titles.grpo.train_grpo \
-    --run-name model2 \
+    --run-name debug \
+    --task debug \
     --lora-rank 16 \
-    --base-model unsloth/Qwen2.5-14B-Instruct \
+    --base-model unsloth/Qwen2.5-3B-Instruct \
     --no-load-in-4bit \
     --fast-inference \
     --gpu-memory-utilization 0.7 \
@@ -62,7 +63,7 @@ run: |
     --save-steps 250 \
     --max-grad-norm 0.1 \
     --output-dir outputs \
-    --val-set-size 100 \
-    --val-samples-to-log 30 \
-    --eval-steps 50 \
-    --training-dataset-size 5000
+    --val-set-size 5 \
+    --val-samples-to-log 5 \
+    --eval-steps 10 \
+    --training-dataset-size 100

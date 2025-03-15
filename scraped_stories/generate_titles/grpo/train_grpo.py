@@ -1,37 +1,25 @@
 import unsloth
 from vllm import SamplingParams
 from unsloth import FastLanguageModel, is_bfloat16_supported
-import re
-from datasets import load_dataset, Dataset
+from datasets import Dataset
 from trl import GRPOConfig, GRPOTrainer
+from trl.trainer.grpo_trainer import RewardFunc
 from dotenv import load_dotenv
 import typer
 import wandb
-from transformers import TrainerCallback, AutoTokenizer
+from transformers import TrainerCallback, PreTrainedTokenizer, AutoTokenizer
 import numpy as np
-from typing import Callable, Optional
+from typing import Callable, Type, List, Any
 import asyncio
 from ..rm.utils import score_title
 from ..utils import pull_data, cache, prompt_for_title
+from panza import limit_concurrency
+from abc import ABC, abstractmethod
 
 load_dotenv()
 
 
-@cache.cache()
-async def load_data(
-    split: str = "train",
-    max_items: int = 10,
-    min_score: int = 20,
-    max_length: int = 8192,
-    tokenizer_name: str = "unsloth/Qwen2.5-14B-Instruct",
-) -> Dataset:
-    data = pull_data(split=split, max_items=max_items, min_score=min_score)
-    data = data.map(
-        lambda x: {
-            "prompt": prompt_for_title(x["scraped_body"]),
-            "row": x,
-        }
-    )
+def filter_on_length(data: Dataset, max_length: int, tokenizer_name: str) -> Dataset:
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
     def check_length(x):
@@ -50,22 +38,29 @@ async def load_data(
     return data
 
 
-def title_reward(prompts, completions, row, **kwargs) -> list[float]:
-    responses = [completion[0]["content"] for completion in completions]
-    updated_rows = [{**r, "title": response} for r, response in zip(row, responses)]
-
-    async def run_scores():
-        await score_title.bust_cache()
-        return await asyncio.gather(*[score_title(r, "rm") for r in updated_rows])
-
-    return asyncio.run(run_scores())
+@cache.cache()
+async def load_data(
+    split: str = "train",
+    max_items: int = 10,
+    min_score: int = 20,
+    max_length: int = 8192,
+    tokenizer_name: str = "unsloth/Qwen2.5-14B-Instruct",
+) -> Dataset:
+    data = pull_data(split=split, max_items=max_items, min_score=min_score)
+    data = data.map(
+        lambda x: {
+            "prompt": prompt_for_title(x["scraped_body"]),
+            "row": x,
+        }
+    )
+    return filter_on_length(data, max_length, tokenizer_name)
 
 
 class ValidationCallback(TrainerCallback):
     def __init__(
         self,
         val_dataset: Dataset,
-        tokenizer: AutoTokenizer,
+        tokenizer: PreTrainedTokenizer,
         max_completion_length: int,
         reward_func: Callable,
         val_generations_to_log_to_wandb: int,
@@ -81,15 +76,22 @@ class ValidationCallback(TrainerCallback):
         self.reward_func = reward_func
         self.eval_steps = eval_steps
 
-    def on_step_end(self, args, state, control, **kwargs):
+    def on_step_end(self, args, state, control, model: FastLanguageModel, **kwargs):
         if state.global_step % self.eval_steps != 0:
             return control
 
-        model = kwargs.get("model", None)
+        print(f"Model type: {type(model)}")
+        # print(f"Model is: {model}")
 
-        outputs = model.fast_generate(
+        # You might think that `model.fast_generate` on a LoRA model would run generation on the actual LoRA model, but
+        # you would be wrong, it runs generation on the base model! But if we save the LoRA weights and then load them,
+        # we can get the correct behavior.
+        model.save_lora("val_model_lora")  # type: ignore
+
+        outputs = model.fast_generate(  # type: ignore
             self.inputs,
             sampling_params=SamplingParams(max_tokens=self.max_completion_length),
+            lora_request=model.load_lora("val_model_lora"),  # type: ignore
         )
         outputs = [o.outputs[0].text for o in outputs]
 
@@ -100,7 +102,19 @@ class ValidationCallback(TrainerCallback):
             ],  # adapt to the shape the reward function expects
             self.val_dataset["row"],
         )
-        wandb.log({"val/reward": np.mean(scores)}, step=state.global_step)
+        mean_score = np.mean(scores)
+        p5_score = np.percentile(scores, 5)
+        median_score = np.percentile(scores, 50)
+        p95_score = np.percentile(scores, 95)
+        wandb.log(
+            {
+                "val/reward_mean": mean_score,
+                "val/reward_p5": p5_score,
+                "val/reward_median": median_score,
+                "val/reward_p95": p95_score,
+            },
+            step=state.global_step,
+        )
 
         generations_to_log = self.val_generations_to_log_to_wandb
         if generations_to_log == 0:
@@ -126,7 +140,7 @@ class ValidationCallback(TrainerCallback):
         # Add new row with all data
         row_data = [state.global_step]
         for sample in samples:
-            row_data.extend(sample)
+            row_data.extend(sample)  # type: ignore
         new_table.add_data(*row_data)
 
         # Log the table and update reference
@@ -134,11 +148,101 @@ class ValidationCallback(TrainerCallback):
         self.validation_table = new_table
 
 
+class TaskConfig(ABC):
+    @classmethod
+    @abstractmethod
+    async def load_data(
+        cls, split: str, max_items: int, max_length: int, tokenizer_name: str
+    ):
+        pass
+
+    @classmethod
+    @abstractmethod
+    def reward_funcs(cls) -> List[RewardFunc]:
+        """Return a list of reward functions, each with the signature (prompts, completions, row) -> list[float]"""
+        pass
+
+
+class TitlesTaskConfig(TaskConfig):
+    @classmethod
+    async def load_data(
+        cls,
+        split: str,
+        max_items: int,
+        max_length: int,
+        tokenizer_name: str,
+    ):
+        return await load_data(
+            split=split,
+            max_items=max_items,
+            min_score=20,
+            max_length=max_length,
+            tokenizer_name=tokenizer_name,
+        )
+
+    @classmethod
+    def reward_funcs(cls) -> List[RewardFunc]:
+        def title_reward(prompts, completions, row) -> list[float]:
+            responses = [completion[0]["content"] for completion in completions]
+            updated_rows = [
+                {**r, "title": response} for r, response in zip(row, responses)
+            ]
+
+            @limit_concurrency(10)
+            async def score_title_async(r):
+                return await score_title(r, "rm")
+
+            async def run_scores():
+                # await score_title.bust_cache()
+                return await asyncio.gather(
+                    *[score_title_async(r) for r in updated_rows]
+                )
+
+            return asyncio.run(run_scores())
+
+        return [title_reward]  # type: ignore
+
+
+class DebugTaskConfig(TaskConfig):
+    @classmethod
+    async def load_data(
+        cls, split: str, max_items: int, max_length: int, tokenizer_name: str
+    ):
+        return Dataset.from_list(
+            [
+                {
+                    "prompt": [
+                        {
+                            "role": "user",
+                            "content": "Return a random number between 1 and 3. Literally just a single number, no other text.",
+                        }
+                    ],
+                    "row": {},
+                }
+                for _ in range(max_items)
+            ]
+        )
+
+    @classmethod
+    def reward_funcs(cls) -> List[RewardFunc]:
+        def debug_reward(prompts, completions, row, **kwargs):
+            scores = []
+            for comp in completions:
+                try:
+                    response = comp[0]["content"].strip()
+                    score = 1 if response == "3" else 0
+                except Exception:
+                    score = 0
+                scores.append(score)
+            return scores
+
+        return [debug_reward]  # type: ignore
+
+
 def main(
     run_name: str = typer.Option(
         __file__.split("/")[-1].replace(".py", ""), help="Run name"
     ),
-    max_seq_length: int = typer.Option(8192, help="Maximum sequence length"),
     lora_rank: int = typer.Option(16, help="LoRA rank"),
     base_model: str = typer.Option(
         "unsloth/Qwen2.5-14B-Instruct", help="Base model to use"
@@ -180,27 +284,38 @@ def main(
     ),
     eval_steps: int = typer.Option(1, help="Evaluate every N training steps"),
     num_epochs: int = typer.Option(1, help="Number of training epochs"),
+    task: str = typer.Option("titles", help="Task to run: 'titles' or 'debug'"),
 ) -> None:
-    wandb.init(project="hn_title_generation", name=run_name)
+    wandb.init(
+        project="hn_title_debug" if task == "debug" else "hn_title_generation",
+        name=run_name,
+    )
+
+    task_cls: Type[TaskConfig]
+    if task == "debug":
+        task_cls = DebugTaskConfig
+    elif task == "titles":
+        task_cls = TitlesTaskConfig
+    else:
+        raise ValueError(f"Unknown task: {task}. Valid choices are: 'titles', 'debug'.")
 
     dataset = asyncio.run(
-        load_data(
+        task_cls.load_data(
             split="train",
             max_items=training_dataset_size,
-            min_score=20,
             max_length=max_prompt_length,
             tokenizer_name=base_model,
         )
     )
     val_dataset = asyncio.run(
-        load_data(
+        task_cls.load_data(
             split="val",
             max_items=val_set_size,
-            min_score=20,
             max_length=max_prompt_length,
             tokenizer_name=base_model,
         )
     )
+
     print(f"Training dataset size: {len(dataset)}")
     print(f"Validation dataset size: {len(val_dataset)}")
 
@@ -218,7 +333,7 @@ def main(
         r=lora_rank,
         target_modules=["gate_proj", "up_proj", "down_proj"],
         lora_alpha=lora_rank,
-        use_gradient_checkpointing="unsloth",
+        use_gradient_checkpointing="unsloth",  # type: ignore
         random_state=3407,
     )
 
@@ -250,7 +365,7 @@ def main(
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
-        reward_funcs=title_reward,
+        reward_funcs=task_cls.reward_funcs(),
         args=training_args,
         train_dataset=dataset,
     )
@@ -258,15 +373,14 @@ def main(
         val_dataset=val_dataset,
         tokenizer=tokenizer,
         max_completion_length=max_completion_length,
-        reward_func=title_reward,
+        reward_funcs=task_cls.reward_funcs(),
         val_generations_to_log_to_wandb=val_samples_to_log,
         eval_steps=eval_steps,
     )
     trainer.add_callback(validation_callback)
     trainer.train()
 
-    model.save_lora("grpo_saved_lora")
+    model.save_lora(run_name)
 
 
-if __name__ == "__main__":
-    typer.run(main)
+typer.run(main)
