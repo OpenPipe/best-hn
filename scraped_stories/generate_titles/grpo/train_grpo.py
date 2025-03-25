@@ -9,7 +9,7 @@ import typer
 import wandb
 from transformers import TrainerCallback, PreTrainedTokenizer, AutoTokenizer
 import numpy as np
-from typing import Callable, Type, List, Any
+from typing import Callable, Type, Tuple, Coroutine, Any
 import asyncio
 from ..rm.utils import score_title
 from ..utils import pull_data, cache, prompt_for_title
@@ -56,13 +56,19 @@ async def load_data(
     return filter_on_length(data, max_length, tokenizer_name)
 
 
+RewardAndMetrics = Callable[
+    [list[dict], list[list[dict]], list[dict]],
+    Coroutine[Any, Any, list[Tuple[float, dict[str, float]]]],
+]
+
+
 class ValidationCallback(TrainerCallback):
     def __init__(
         self,
         val_dataset: Dataset,
         tokenizer: PreTrainedTokenizer,
         max_completion_length: int,
-        reward_func: Callable,
+        reward_func: RewardAndMetrics,
         val_generations_to_log_to_wandb: int,
         eval_steps: int,
     ):
@@ -80,9 +86,6 @@ class ValidationCallback(TrainerCallback):
         if state.global_step % self.eval_steps != 0:
             return control
 
-        print(f"Model type: {type(model)}")
-        # print(f"Model is: {model}")
-
         # You might think that `model.fast_generate` on a LoRA model would run generation on the actual LoRA model, but
         # you would be wrong, it runs generation on the base model! But if we save the LoRA weights and then load them,
         # we can get the correct behavior.
@@ -95,37 +98,61 @@ class ValidationCallback(TrainerCallback):
         )
         outputs = [o.outputs[0].text for o in outputs]
 
-        scores = self.reward_func(
-            self.val_dataset["prompt"],
-            [
-                [{"content": o}] for o in outputs
-            ],  # adapt to the shape the reward function expects
-            self.val_dataset["row"],
+        scores_and_metrics = asyncio.run(
+            self.reward_func(
+                self.val_dataset["prompt"],
+                [
+                    [{"content": o}] for o in outputs
+                ],  # adapt to the shape the reward function expects
+                self.val_dataset["row"],
+            )
         )
-        mean_score = np.mean(scores)
-        p5_score = np.percentile(scores, 5)
-        median_score = np.percentile(scores, 50)
-        p95_score = np.percentile(scores, 95)
+        scores = [s[0] for s in scores_and_metrics]
+
         wandb.log(
             {
-                "val/reward_mean": mean_score,
-                "val/reward_p5": p5_score,
-                "val/reward_median": median_score,
-                "val/reward_p95": p95_score,
+                "val/reward/mean": np.mean(scores),
+                "val/reward/p5": np.percentile(scores, 5),
+                "val/reward/median": np.percentile(scores, 50),
+                "val/reward/p95": np.percentile(scores, 95),
+                "val/reward/std_dev": np.std(scores),
             },
             step=state.global_step,
         )
+
+        all_metrics: dict[str, list[float]] = {}
+        for s_and_m in scores_and_metrics:
+            for k, v in s_and_m[1].items():
+                if k not in all_metrics:
+                    all_metrics[k] = []
+                all_metrics[k].append(v)
+
+        for k, v in all_metrics.items():
+            wandb.log(
+                {
+                    f"val/metrics/{k}/mean": np.mean(v),
+                    f"val/metrics/{k}/p5": np.percentile(v, 5),
+                    f"val/metrics/{k}/median": np.percentile(v, 50),
+                    f"val/metrics/{k}/p95": np.percentile(v, 95),
+                    f"val/metrics/{k}/std_dev": np.std(v),
+                },
+                step=state.global_step,
+            )
 
         generations_to_log = self.val_generations_to_log_to_wandb
         if generations_to_log == 0:
             return
         # Create tuples of (input, output, score) and sort by input text
-        samples = [x for x in zip(self.inputs, outputs, scores)][:generations_to_log]
         # Create column names for all samples
         columns = ["step"] + sum(
             [
-                [f"input_{i + 1}", f"output_{i + 1}", f"score_{i + 1}"]
-                for i in range(len(samples))
+                [
+                    f"input_{i + 1}",
+                    f"output_{i + 1}",
+                    f"score_{i + 1}",
+                    f"metrics_{i + 1}",
+                ]
+                for i in range(generations_to_log)
             ],
             [],
         )
@@ -139,8 +166,19 @@ class ValidationCallback(TrainerCallback):
 
         # Add new row with all data
         row_data = [state.global_step]
-        for sample in samples:
-            row_data.extend(sample)  # type: ignore
+
+        samples = [x for x in zip(self.inputs, outputs, scores_and_metrics)][
+            :generations_to_log
+        ]
+        for input, output, (score, metrics) in samples:
+            row_data.extend(
+                [
+                    input,
+                    output,
+                    score,
+                    "\n".join([f"{k}={v}" for k, v in metrics.items()]),
+                ]
+            )  # type: ignore
         new_table.add_data(*row_data)
 
         # Log the table and update reference
@@ -158,49 +196,18 @@ class TaskConfig(ABC):
 
     @classmethod
     @abstractmethod
-    def reward_funcs(cls) -> List[RewardFunc]:
-        """Return a list of reward functions, each with the signature (prompts, completions, row) -> list[float]"""
+    async def reward(
+        cls, prompts: list[dict], completions: list[dict], rows: list[dict]
+    ) -> list[Tuple[float, dict[str, float]]]:
         pass
 
-
-class TitlesTaskConfig(TaskConfig):
     @classmethod
-    async def load_data(
-        cls,
-        split: str,
-        max_items: int,
-        max_length: int,
-        tokenizer_name: str,
-    ):
-        return await load_data(
-            split=split,
-            max_items=max_items,
-            min_score=20,
-            max_length=max_length,
-            tokenizer_name=tokenizer_name,
-        )
+    def grpo_trainer_reward_func(cls) -> RewardFunc:
+        def reward_func(prompts, completions, **kwargs):
+            rewards = asyncio.run(cls.reward(prompts, completions, rows=kwargs["row"]))
+            return [r[0] for r in rewards]
 
-    @classmethod
-    def reward_funcs(cls) -> List[RewardFunc]:
-        def title_reward(prompts, completions, row) -> list[float]:
-            responses = [completion[0]["content"] for completion in completions]
-            updated_rows = [
-                {**r, "title": response} for r, response in zip(row, responses)
-            ]
-
-            @limit_concurrency(10)
-            async def score_title_async(r):
-                return await score_title(r, "rm")
-
-            async def run_scores():
-                # await score_title.bust_cache()
-                return await asyncio.gather(
-                    *[score_title_async(r) for r in updated_rows]
-                )
-
-            return asyncio.run(run_scores())
-
-        return [title_reward]  # type: ignore
+        return reward_func
 
 
 class DebugTaskConfig(TaskConfig):
@@ -224,19 +231,11 @@ class DebugTaskConfig(TaskConfig):
         )
 
     @classmethod
-    def reward_funcs(cls) -> List[RewardFunc]:
-        def debug_reward(prompts, completions, row, **kwargs):
-            scores = []
-            for comp in completions:
-                try:
-                    response = comp[0]["content"].strip()
-                    score = 1 if response == "3" else 0
-                except Exception:
-                    score = 0
-                scores.append(score)
-            return scores
-
-        return [debug_reward]  # type: ignore
+    async def reward(cls, prompts, completions, rows):
+        return [
+            (1, {}) if completion[0]["content"] == "3" else (0, {})
+            for completion in completions
+        ]
 
 
 def main(
@@ -291,6 +290,120 @@ def main(
         name=run_name,
     )
 
+    # Load model and tokenizer using the provided hyperparameters
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name=base_model,
+        max_seq_length=max_prompt_length + max_completion_length,
+        load_in_4bit=load_in_4bit,
+        fast_inference=fast_inference,
+        max_lora_rank=lora_rank,
+        gpu_memory_utilization=gpu_memory_utilization,
+    )
+    model = FastLanguageModel.get_peft_model(
+        model,
+        r=lora_rank,
+        target_modules=["gate_proj", "up_proj", "down_proj"],
+        lora_alpha=lora_rank,
+        use_gradient_checkpointing="unsloth",  # type: ignore
+        random_state=3407,
+    )
+
+    class TitlesTaskConfig(TaskConfig):
+        @classmethod
+        async def load_data(
+            cls,
+            split: str,
+            max_items: int,
+            max_length: int,
+            tokenizer_name: str,
+        ):
+            return await load_data(
+                split=split,
+                max_items=max_items,
+                min_score=20,
+                max_length=max_length,
+                tokenizer_name=tokenizer_name,
+            )
+
+        @classmethod
+        async def reward(
+            cls,
+            prompts,
+            completions,
+            rows,
+        ) -> list[Tuple[float, dict[str, float]]]:
+            responses = [completion[0]["content"] for completion in completions]
+            updated_rows = [
+                {**r, "title": response} for r, response in zip(rows, responses)
+            ]
+
+            @limit_concurrency(10)
+            async def score_title_async(r):
+                return await score_title(r, "rm")
+
+            def check_if_titles_match_bodies(bodies, titles):
+                inputs = []
+                for body, title in zip(bodies, titles):
+                    inputs.append(
+                        tokenizer.apply_chat_template(
+                            [
+                                {
+                                    "role": "system",
+                                    "content": "You are a moderator for Hacker News. You are given the body of an article, as well as a proposed title. You are to determine whether the title makes any claims that are not substantiated by the article body. If there are any unsubstantiated claims, you should return False. Otherwise, you should return True. Only return False or True, no other text.",
+                                },
+                                {
+                                    "role": "user",
+                                    "content": f"<article>{body}</article>\n<proposed_title>{title}</proposed_title>",
+                                },
+                            ],
+                            tokenize=False,
+                            add_generation_prompt=True,
+                        )
+                    )
+
+                outputs = model.fast_generate(
+                    inputs,
+                    sampling_params=SamplingParams(max_tokens=2),
+                )
+                outputs = [o.outputs[0].text for o in outputs]
+                for output in outputs:
+                    if output not in ["True", "False"]:
+                        print(
+                            f"Warning: Invalid output from check_if_title_matches_scraped_body: {output}"
+                        )
+                return [1 if output.lower()[0] == "t" else 0 for output in outputs]
+
+            # Kick this off first so the RM can be scoring while we're doing the matching check locally
+            rm_task_coros = [score_title_async(r) for r in updated_rows]
+
+            # Run the matching check locally
+            matching_scores = check_if_titles_match_bodies(
+                [r["scraped_body"] for r in updated_rows],
+                [r["title"] for r in updated_rows],
+            )
+
+            rm_scores = await asyncio.gather(*rm_task_coros)
+
+            rewards = []
+            for r, rm_score, title_matches in zip(
+                updated_rows, rm_scores, matching_scores
+            ):
+                if title_matches == 0:
+                    score = 0
+                else:
+                    score = rm_score
+                rewards.append(
+                    (
+                        score,
+                        {
+                            "length": len(r["title"]),
+                            "matches": title_matches,
+                            "rm": rm_score,
+                        },
+                    )
+                )
+            return rewards
+
     task_cls: Type[TaskConfig]
     if task == "debug":
         task_cls = DebugTaskConfig
@@ -318,24 +431,6 @@ def main(
 
     print(f"Training dataset size: {len(dataset)}")
     print(f"Validation dataset size: {len(val_dataset)}")
-
-    # Load model and tokenizer using the provided hyperparameters
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=base_model,
-        max_seq_length=max_prompt_length + max_completion_length,
-        load_in_4bit=load_in_4bit,
-        fast_inference=fast_inference,
-        max_lora_rank=lora_rank,
-        gpu_memory_utilization=gpu_memory_utilization,
-    )
-    model = FastLanguageModel.get_peft_model(
-        model,
-        r=lora_rank,
-        target_modules=["gate_proj", "up_proj", "down_proj"],
-        lora_alpha=lora_rank,
-        use_gradient_checkpointing="unsloth",  # type: ignore
-        random_state=3407,
-    )
 
     training_args = GRPOConfig(
         use_vllm=True,
@@ -365,7 +460,7 @@ def main(
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
-        reward_funcs=task_cls.reward_funcs(),
+        reward_funcs=task_cls.grpo_trainer_reward_func(),
         args=training_args,
         train_dataset=dataset,
     )
@@ -373,7 +468,7 @@ def main(
         val_dataset=val_dataset,
         tokenizer=tokenizer,
         max_completion_length=max_completion_length,
-        reward_funcs=task_cls.reward_funcs(),
+        reward_func=task_cls.reward,  # type: ignore
         val_generations_to_log_to_wandb=val_samples_to_log,
         eval_steps=eval_steps,
     )

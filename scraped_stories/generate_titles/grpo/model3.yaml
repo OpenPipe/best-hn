@@ -1,0 +1,68 @@
+# To launch: `uv run sky launch scraped_stories/generate_titles/grpo/model3.yaml --cluster=hn-grpo-1 --env-file=.env --yes --retry-until-up`
+
+resources:
+  image_id: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel
+  cloud: runpod
+  region: US
+  accelerators:
+    - "H100"
+
+workdir: .
+
+envs:
+  HF_HUB_ENABLE_HF_TRANSFER: 1
+  REWARD_MODEL_URL:
+
+setup: |
+  apt-get update && apt-get install -y git
+
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+
+  # Source the environment to make uv available
+  source $HOME/.local/bin/env
+
+  uv pip install --system \
+    unsloth==2025.3.9 \
+    vllm==0.7.3 \
+    datasets==3.3.2 \
+    s3fs==2024.12.0 \
+    hf-transfer==0.1.9 \
+    typer==0.15.2 \
+    fastapi==0.115.11 \
+    python-dotenv==1.0.1 \
+    polars==1.24.0 \
+    wandb==0.19.8 \
+    git+https://github.com/corbt/panza.git \
+
+  echo "Setup complete"
+
+run: |
+  echo "Running train_grpo.py"
+  python -m scraped_stories.generate_titles.grpo.train_grpo \
+    --run-name model3 \
+    --lora-rank 16 \
+    --base-model unsloth/Qwen2.5-14B-Instruct \
+    --no-load-in-4bit \
+    --fast-inference \
+    --gpu-memory-utilization 0.7 \
+    --learning-rate 5e-6 \
+    --adam-beta1 0.9 \
+    --adam-beta2 0.99 \
+    --weight-decay 0.1 \
+    --warmup-ratio 0.1 \
+    --lr-scheduler-type constant \
+    --optim paged_adamw_8bit \
+    --logging-steps 5 \
+    --per-device-train-batch-size 1 \
+    --gradient-accumulation-steps 1 \
+    --num-generations 6 \
+    --num-epochs 5 \
+    --max-prompt-length 8192 \
+    --max-completion-length 512 \
+    --save-steps 250 \
+    --max-grad-norm 0.1 \
+    --output-dir outputs \
+    --val-set-size 100 \
+    --val-samples-to-log 30 \
+    --eval-steps 50 \
+    --training-dataset-size 5000

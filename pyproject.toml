@@ -17,7 +17,7 @@ dependencies = [
     "ipykernel>=6.29.5",
     "ipywidgets>=8.1.5",
     "jupyter>=1.1.1",
-    # "liger-kernel>=0.3.1",
+    "liger-kernel>=0.5.5",
     "matplotlib>=3.9.2",
     "modal>=0.65.48",
     "moto[s3]>=5.0.20",
@@ -56,4 +56,5 @@ managed = true
 override-dependencies = [
     "bitsandbytes; sys_platform == 'never'",
     "xformers; sys_platform == 'never'",
+    "triton; sys_platform == 'never'",
 ]

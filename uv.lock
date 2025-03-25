@@ -24,6 +24,7 @@ resolution-markers = [
 [manifest]
 overrides = [
     { name = "bitsandbytes", marker = "sys_platform == 'never'" },
+    { name = "triton", marker = "sys_platform == 'never'" },
     { name = "xformers", marker = "sys_platform == 'never'" },
 ]
 
@@ -436,6 +437,7 @@ dependencies = [
     { name = "ipykernel" },
     { name = "ipywidgets" },
     { name = "jupyter" },
+    { name = "liger-kernel" },
     { name = "matplotlib" },
     { name = "modal" },
     { name = "moto", extra = ["s3"] },
@@ -475,6 +477,7 @@ requires-dist = [
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipywidgets", specifier = ">=8.1.5" },
     { name = "jupyter", specifier = ">=1.1.1" },
+    { name = "liger-kernel", specifier = ">=0.5.5" },
     { name = "matplotlib", specifier = ">=3.9.2" },
     { name = "modal", specifier = ">=0.65.48" },
     { name = "moto", extras = ["s3"], specifier = ">=5.0.20" },
@@ -900,7 +903,7 @@ version = "25.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "torch" },
-    { name = "triton", marker = "platform_system == 'Linux'" },
+    { name = "triton", marker = "sys_platform == 'never'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7e/97/45ff09cfcda7b200389204daa0125168e6544fba257adbbcdf728501d4f9/cut_cross_entropy-25.1.1.tar.gz", hash = "sha256:5fe5924509248b1aea5c890f8887c6a7759f7c8b1ebc0490e42c247c4f7c1e34", size = 22972 }
 wheels = [
@@ -2131,6 +2134,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/af/60/bc7622aefb2aee1c0b4ba23c1446d3e30225c8770b38d7aedbfb65ca9d5a/lark-1.2.2.tar.gz", hash = "sha256:ca807d0162cd16cef15a8feecb862d7319e7a09bdb13aef927968e45040fed80", size = 252132 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2d/00/d90b10b962b4277f5e64a78b6609968859ff86889f5b898c1a778c06ec00/lark-1.2.2-py3-none-any.whl", hash = "sha256:c2276486b02f0f1b90be155f2c8ba4a8e194d42775786db622faccd652d8e80c", size = 111036 },
+]
+
+[[package]]
+name = "liger-kernel"
+version = "0.5.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "torch" },
+    { name = "triton", marker = "sys_platform == 'never'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0b/bf/908787b7e638e7bc921c9107e512ddd6a1714521b8781ce196e7f278564a/liger_kernel-0.5.5.tar.gz", hash = "sha256:c9e80f779cbac05b4475a8feb3fff89e4d65c65c498221076d438c65a1d9c271", size = 3564008 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ef/fd/aee7634270a1c5351b1b3f7d61a0ca298ff9638978353b91bf605f556a57/liger_kernel-0.5.5-py3-none-any.whl", hash = "sha256:bcb1034789d21ac72b73dc5b90b71c7791f16e347c6d1be9e0a8a249ecf6696d", size = 128822 },
 ]
 
 [[package]]
@@ -4821,7 +4837,7 @@ dependencies = [
     { name = "nvidia-nccl-cu12", marker = "platform_machine == 'x86_64' and platform_system == 'Linux'" },
     { name = "nvidia-nvtx-cu12", marker = "platform_machine == 'x86_64' and platform_system == 'Linux'" },
     { name = "sympy" },
-    { name = "triton", marker = "python_full_version < '3.13' and platform_machine == 'x86_64' and platform_system == 'Linux'" },
+    { name = "triton", marker = "sys_platform == 'never'" },
     { name = "typing-extensions" },
 ]
 wheels = [
@@ -4930,11 +4946,7 @@ name = "triton"
 version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "filelock", marker = "platform_system != 'Darwin'" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/33/3e/a2f59384587eff6aeb7d37b6780de7fedd2214935e27520430ca9f5b7975/triton-3.0.0-1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:5ce8520437c602fb633f1324cc3871c47bee3b67acf9756c1a66309b60e3216c", size = 209438883 },
-    { url = "https://files.pythonhosted.org/packages/fe/7b/7757205dee3628f75e7991021d15cd1bd0c9b044ca9affe99b50879fc0e1/triton-3.0.0-1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:34e509deb77f1c067d8640725ef00c5cbfcb2052a1a3cb6a6d343841f92624eb", size = 209464695 },
+    { name = "filelock", marker = "sys_platform != 'linux'" },
 ]
 
 [[package]]
@@ -5100,7 +5112,7 @@ dependencies = [
     { name = "torchvision" },
     { name = "tqdm" },
     { name = "transformers" },
-    { name = "triton", marker = "platform_system == 'Linux'" },
+    { name = "triton", marker = "sys_platform == 'never'" },
     { name = "trl" },
     { name = "tyro" },
     { name = "unsloth-zoo" },
@@ -5133,7 +5145,7 @@ dependencies = [
     { name = "torch" },
     { name = "tqdm" },
     { name = "transformers" },
-    { name = "triton", marker = "platform_system == 'Linux'" },
+    { name = "triton", marker = "sys_platform == 'never'" },
     { name = "trl" },
     { name = "tyro" },
     { name = "wheel" },
